@@ -1,6 +1,6 @@
 {
   "name": "ed-extension",
-  "displayName": "Ed extension",
+  "displayName": "ED File Finder",
   "version": "0.0.1",
   "description": "A better Ed Search chrome extension.",
   "author": "1plikéEnPrompts140",
@@ -26,6 +26,10 @@
   "manifest": {
     "host_permissions": [
       "https://*/*"
-    ]
+    ],
+    "permissions": ["scripting", "activeTab", "storage", "clipboardWrite"],
+    "externally_connectable": {
+      "matches": ["*://*.localhost/*", "*://*.example.com/*"]
+    }
   }
 }
