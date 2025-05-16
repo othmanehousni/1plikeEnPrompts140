@@ -1,21 +1,60 @@
-import { pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { relations } from 'drizzle-orm';
+import { boolean, integer, pgTable, primaryKey, text, timestamp, varchar } from 'drizzle-orm/pg-core';
 
-// User table schema
-export const users = pgTable("users", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  email: text("email").notNull().unique(),
-  name: text("name"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+// Courses table
+export const courses = pgTable('courses', {
+  id: integer('id').primaryKey(),
+  code: varchar('code', { length: 20 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  year: varchar('year', { length: 10 }).notNull(),
+  lastActive: timestamp('last_active'),
 });
 
-// Message table schema
-export const messages = pgTable("messages", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").references(() => users.id).notNull(),
-  content: text("content").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+
+// Threads table
+export const threads = pgTable('threads', {
+  id: integer('id').primaryKey(),
+  courseId: integer('course_id').notNull().references(() => courses.id),
+  title: varchar('title', { length: 255 }).notNull(),
+  document: text('document'),
+  category: varchar('category', { length: 100 }),
+  subcategory: varchar('subcategory', { length: 100 }),
+  subsubcategory: varchar('subsubcategory', { length: 100 }),
+  isAnswered: boolean('is_answered').default(false),
+  isStaffAnswered: boolean('is_staff_answered').default(false),
+  isStudentAnswered: boolean('is_student_answered').default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at'),
 });
 
-// Add more tables as needed for your application 
+// Answers/replies to threads
+export const answers = pgTable('answers', {
+  id: integer('id').primaryKey(),
+  threadId: integer('thread_id').notNull().references(() => threads.id),
+  courseId: integer('course_id').notNull().references(() => courses.id),
+  parentId: integer('parent_id'),
+  document: text('document'),
+  isResolved: boolean('is_resolved').default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at'),
+});
+
+// Relations
+export const coursesRelations = relations(courses, ({ many }) => ({
+  threads: many(threads),
+}));
+
+export const threadsRelations = relations(threads, ({ one, many }) => ({
+  course: one(courses, {
+    fields: [threads.courseId],
+    references: [courses.id],
+  }),
+  answers: many(answers),
+}));
+
+export const answersRelations = relations(answers, ({ one }) => ({
+  thread: one(threads, {
+    fields: [answers.threadId],
+    references: [threads.id],
+  }),
+}));

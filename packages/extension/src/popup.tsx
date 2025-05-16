@@ -3,7 +3,8 @@ import "./style.css";
 
 function IndexPopup() {
 	const [token, setToken] = useState<string>("Token non disponible");
-	const [copied, setCopied] = useState(false);
+	const [syncStatus, setSyncStatus] = useState<string>("");
+	const [isSyncing, setIsSyncing] = useState(false);
 
 	useEffect(() => {
 		// Récupérer le token depuis le stockage local
@@ -14,13 +15,39 @@ function IndexPopup() {
 		});
 	}, []);
 
-	const copyToken = async () => {
+	const startSync = async () => {
 		try {
-			await navigator.clipboard.writeText(token);
-			setCopied(true);
-			setTimeout(() => setCopied(false), 2000);
-		} catch (err) {
-			console.error("Erreur de copie:", err);
+			setIsSyncing(true);
+			setSyncStatus("Synchronisation en cours...");
+			
+			// Get the last sync time
+			const storageData = await chrome.storage.local.get(["lastSyncTime"]);
+			const lastSyncTime = storageData.lastSyncTime || 0;
+			
+			// Send a message to the background script to initiate syncing
+			const response = await chrome.runtime.sendMessage({
+				action: "startSync",
+				token: token,
+				lastSyncTime: lastSyncTime
+			});
+			
+			if (response.success) {
+				const currentTime = Date.now();
+				setSyncStatus(`${response.newPostsCount} nouveaux posts synchronisés!`);
+				
+				// Update last sync time
+				await chrome.storage.local.set({ lastSyncTime: currentTime });
+				console.log("[ED Extension] Updated last sync time");
+			} else {
+				setSyncStatus(`Erreur: ${response.message || "Échec de la synchronisation"}`);
+			}
+		} catch (error) {
+			console.error("[ED Extension] Error during sync:", error);
+			setSyncStatus("Erreur de synchronisation. Veuillez réessayer.");
+		} finally {
+			setIsSyncing(false);
+			// Reset status message after 3 seconds
+			setTimeout(() => setSyncStatus(""), 3000);
 		}
 	};
 
@@ -49,7 +76,7 @@ function IndexPopup() {
 					WebkitTextFillColor: "transparent",
 				}}
 			>
-				ED Token
+				ED Extension
 			</h2>
 
 			<div
@@ -73,7 +100,8 @@ function IndexPopup() {
 
 			<button
 				type="button"
-				onClick={copyToken}
+				onClick={startSync}
+				disabled={isSyncing}
 				onFocus={(e) => {
 					e.currentTarget.style.transform = "translateY(-2px)"
 					e.currentTarget.style.boxShadow = "0 6px 12px rgba(138, 43, 226, 0.4)"
@@ -92,13 +120,13 @@ function IndexPopup() {
 				}}
 				style={{
 					padding: "10px 18px",
-					background: copied
-						? "linear-gradient(135deg, #4CAF50, #45a049)"
+					background: isSyncing
+						? "linear-gradient(135deg, #cccccc, #bbbbbb)"
 						: "linear-gradient(135deg, #8a2be2, #9370db)",
 					color: "white",
 					border: "none",
 					borderRadius: "30px",
-					cursor: "pointer",
+					cursor: isSyncing ? "not-allowed" : "pointer",
 					fontWeight: "600",
 					fontSize: "15px",
 					transition: "all 0.3s ease",
@@ -108,8 +136,25 @@ function IndexPopup() {
 					justifyContent: "center",
 				}}
 			>
-				{copied ? "Copié!" : "Copier le token"} {copied ? "✓" : "📋"}
+				{isSyncing ? "Synchronisation..." : "Synchroniser maintenant"} {isSyncing ? "⟳" : "🔄"}
 			</button>
+			
+			{syncStatus && (
+				<div
+					style={{
+						marginTop: "12px",
+						padding: "8px 12px",
+						borderRadius: "6px",
+						backgroundColor: syncStatus.includes("Erreur") ? "#ffebee" : "#e8f5e9",
+						color: syncStatus.includes("Erreur") ? "#c62828" : "#2e7d32",
+						fontSize: "13px",
+						textAlign: "center",
+						transition: "all 0.3s ease",
+					}}
+				>
+					{syncStatus}
+				</div>
+			)}
 
 			<p
 				style={{
@@ -120,7 +165,7 @@ function IndexPopup() {
 					fontStyle: "italic",
 				}}
 			>
-				Mettez ce token dans le champ "Token" de l'appli.
+				Cliquez sur "Synchroniser maintenant" pour mettre à jour les posts.
 			</p>
 		</div>
 	);
