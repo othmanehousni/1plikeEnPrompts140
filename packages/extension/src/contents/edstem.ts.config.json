@@ -1,0 +1,4 @@
+{
+  "matches": ["https://edstem.org/*"],
+  "run_at": "document_idle"
+} 

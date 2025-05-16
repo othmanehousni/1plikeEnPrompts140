@@ -80,7 +80,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 						<Tabs
 							value={activeTab}
 							onValueChange={setActiveTab}
-							className="w-full"
+							className="w-full h-full"
 							orientation="vertical"
 						>
 							<TabsList className="flex flex-col h-auto bg-transparent w-full items-start p-2 pt-0 gap-1.5">
