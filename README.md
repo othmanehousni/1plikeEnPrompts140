@@ -1,36 +1,103 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Ask-Ed Monorepo
 
-## Getting Started
+This monorepo contains:
 
-First, run the development server:
+1. `@ask-ed/web` - Next.js web application
+2. `@ask-ed/extension` - Plasmo browser extension for extracting Ed tokens
+3. `@ask-ed/shared` - Shared package with types and DB schema
+
+## Setup
+
+This project uses [Bun](https://bun.sh/) as the package manager and runtime:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# Quick setup with our script
+bun setup
+
+# Or manually:
+bun install
+bun build:shared
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Development
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### All Packages
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Two different modes are available for developing all packages simultaneously:
 
-## Learn More
+```bash
+# Dashboard mode: Periodically refreshes with logs from all packages in one view
+bun dev
 
-To learn more about Next.js, take a look at the following resources:
+# Split screen mode: Uses tmux to create split panes for each package (requires tmux)
+bun dev:split
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+#### Dashboard Mode
+The dashboard mode (`bun dev`) displays a refreshing dashboard with the most recent logs from each package. The screen updates every 5 seconds to show the latest outputs.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+#### Split Screen Mode
+The split screen mode (`bun dev:split`) uses tmux to create a split view with:
+- The shared package in the top pane
+- The web app in the bottom-left pane
+- The extension in the bottom-right pane
 
-## Deploy on Vercel
+This mode requires [tmux](https://github.com/tmux/tmux) to be installed on your system.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Individual Packages
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+If you prefer to work on packages individually:
+
+```bash
+# Shared Package
+bun dev:shared
+
+# Web App
+bun dev:web
+
+# Browser Extension
+bun dev:extension
+```
+
+## Building for Production
+
+To build all packages in the correct order:
+
+```bash
+# Build everything
+bun build
+```
+
+Or build packages individually:
+
+```bash
+# Build specific packages
+bun build:shared
+bun build:web
+bun build:extension
+
+# Package extension for distribution
+bun package:extension
+```
+
+## Extension Features
+
+The browser extension automatically extracts the Ed authentication token and makes it available for the Ask-Ed web application.
+
+1. Install the extension
+2. Visit any Ed platform page
+3. The extension will automatically extract your authentication token
+4. Copy the token from the extension popup
+5. Use it in the Ask-Ed web application
+
+## Database
+
+The project uses Drizzle ORM with a shared database schema.
+
+```bash
+# Generate migrations
+bun --cwd packages/shared drizzle-kit generate
+
+# Apply migrations
+bun --cwd packages/web db:migrate
+```

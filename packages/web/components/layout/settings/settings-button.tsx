@@ -9,7 +9,7 @@ export function SettingsButton() {
 	const [isOpen, setIsOpen] = useState(false);
 
 	return (
-		<div className="fixed bottom-4 left-4">
+		<div className="fixed top-4 right-4">
 			<Button
 				variant="ghost"
 				size="icon"

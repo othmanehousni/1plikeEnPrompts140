@@ -6,6 +6,11 @@ type UserPreferences = {
   setTogetherApiKey: (apiKey: string) => void
   clearTogetherApiKey: () => void
   hasTogetherApiKey: () => boolean
+  
+  edStemApiKey: string | null
+  setEdStemApiKey: (apiKey: string) => void
+  clearEdStemApiKey: () => void
+  hasEdStemApiKey: () => boolean
 }
 
 export const useUserPreferences = create<UserPreferences>()(
@@ -23,6 +28,20 @@ export const useUserPreferences = create<UserPreferences>()(
       
       hasTogetherApiKey: () => {
         return !!get().togetherApiKey
+      },
+
+      edStemApiKey: null,
+      
+      setEdStemApiKey: (apiKey: string) => {
+        set({ edStemApiKey: apiKey })
+      },
+      
+      clearEdStemApiKey: () => {
+        set({ edStemApiKey: null })
+      },
+      
+      hasEdStemApiKey: () => {
+        return !!get().edStemApiKey
       }
     }),
     {
