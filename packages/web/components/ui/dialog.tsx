@@ -249,7 +249,7 @@ function DialogContent({ children, className, container }: DialogContentProps) {
 						className,
 					)}
 				>
-					<div className="w-full">{children}</div>
+					<div className="w-full h-full">{children}</div>
 				</motion.dialog>
 			)}
 		</AnimatePresence>
