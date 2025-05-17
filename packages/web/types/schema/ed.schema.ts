@@ -69,7 +69,16 @@ export const EDCommentSchema = z.lazy(() =>
 		is_resolved: z.boolean(),
 		comments: z.array(z.lazy(() => EDCommentSchema)).default([]),
 	}),
-);
+) as z.ZodType<EDBasePost & {
+	thread_id: number;
+	parent_id: number | null;
+	editor_id: number | null;
+	number: number;
+	type: "comment";
+	kind: string;
+	is_resolved: boolean;
+	comments: Array<any>; // Circular reference handled by the 'as' assertion
+}>;
 
 // Type pour les commentaires
 export type EDComment = z.infer<typeof EDCommentSchema>;
@@ -159,7 +168,7 @@ export const EDListedAnswerSchema = z.object({
 	id: z.number(),
 	parent_id: z.number().optional().nullable(),
 	message: z.string().optional().nullable(), // Corresponds to 'content' or 'document' in detailed schemas
-	images: z.array(z.record(z.unknown())).optional().nullable(), // Keep flexible for now
+	images: z.array(z.string()).optional().nullable(), // Keep flexible for now
 	is_resolved: z.boolean().optional().nullable(),
 	created_at: z.string(),
 	updated_at: z.string(),
@@ -180,7 +189,7 @@ export const EDListedThreadSchema = z.object({
 	is_student_answered: z.boolean().optional().nullable(),
 	created_at: z.string(),
 	updated_at: z.string(),
-	images: z.array(z.record(z.unknown())).optional().nullable(),
+	images: z.array(z.string()).optional().nullable(),
 	// Allow additional fields
 }).passthrough();
 export type EDListedThread = z.infer<typeof EDListedThreadSchema>;
@@ -210,11 +219,3 @@ export const EDAnswersListResponseSchema = z.object({
 	}).optional(),
 });
 export type EDAnswersListResponse = z.infer<typeof EDAnswersListResponseSchema>;
-
-// Generic Image schema (if needed across multiple EdStem object types)
-export const EdStemImageSchema = z.object({
-	url: z.string().optional(),
-	id: z.union([z.string(), z.number()]).optional(),
-	filename: z.string().optional(),
-}).passthrough(); // Allow other properties
-export type EdStemImage = z.infer<typeof EdStemImageSchema>;

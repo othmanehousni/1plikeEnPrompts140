@@ -45,8 +45,7 @@ export async function POST(req: NextRequest) {
 
 		try {
 			console.log("Attempting EdStem connection test via EDClient.getUserInfo()...");
-			const token = await client.getToken();
-			await client.getUserInfo(token);
+			await client.getCourses();
 
 			testResult = {
 				endpoint: euUserEndpoint,

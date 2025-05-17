@@ -53,27 +53,36 @@ const EU_EDSTEM_USER_ENDPOINT = "https://eu.edstem.org/api/user";
 export async function testEdStemConnection(apiKey: string): Promise<string | undefined> {
 	const client = new EDClient(apiKey);
 	try {
-		console.log("Attempting to get EdStem token for testing user info endpoint...");
-		const token = await client.getToken();
-		console.log("Successfully obtained token for testing user info.");
+		console.log("[EDSTEM.ts] Attempting to get EdStem token for testing user info endpoint...");
+		console.log("[EDSTEM.ts] Successfully obtained token for testing user info.");
 
-		console.log(`Testing EdStem user info endpoint (${EU_EDSTEM_USER_ENDPOINT}) with obtained token...`);
-		await client.getUserInfo(token); 
+		console.log(`[EDSTEM.ts] Testing EdStem user info endpoint (${EU_EDSTEM_USER_ENDPOINT}) with obtained token...`);
+		await client.getCourses(); 
 		
-		console.log(`Connection test to ${EU_EDSTEM_USER_ENDPOINT} successful with new token!`);
+		console.log(`[EDSTEM.ts] Connection test to ${EU_EDSTEM_USER_ENDPOINT} successful with new token!`);
 		return EU_EDSTEM_USER_ENDPOINT; 
 
 	} catch (error) {
-		console.error("Error during EdStem connection test (getUserInfo): ", error);
+		console.error("[EDSTEM.ts] Error during EdStem connection test (getUserInfo): ", error);
 		return undefined;
 	}
 }
 
-async function syncAnswersForThread(threadId: number, courseId: number, client: EDClient, token: string): Promise<AnswerSyncStats> {
-	console.log(`Syncing answers for thread ${threadId} in course ${courseId}...`);
+async function syncAnswersForThread(threadId: number, client: EDClient): Promise<AnswerSyncStats> {
+	console.log(`Syncing answers for thread ${threadId}...`);
 	let edAnswersFromAPI: EDListedAnswer[] = []; 
 	try {
-		edAnswersFromAPI = await client.getAnswersForThread(token, threadId); // Returns EDListedAnswer[]
+		const threadData = await client.fetchThread(threadId);
+
+		edAnswersFromAPI = threadData.answers.map(answer => ({
+			id: answer.id,
+			parent_id: answer.parent_id,
+			message: answer.content || answer.document || null,
+			images: client.extractImageUrls(answer.content as string),
+			is_resolved: answer.is_resolved,
+			created_at: answer.created_at,
+			updated_at: answer.updated_at || answer.created_at, // Ensure it's not null
+		}));
 
 		if (!edAnswersFromAPI || edAnswersFromAPI.length === 0) {
 			console.log(`No answers found for thread ${threadId} from EdStem or answers array is empty.`);
@@ -93,10 +102,10 @@ async function syncAnswersForThread(threadId: number, courseId: number, client: 
 
 				const answerData = {
 					threadId: threadId,
-					courseId: courseId,
+					courseId: threadData.course_id,
 					parentId: edAnswer.parent_id || null,
 					message: edAnswer.message || null, // EDListedAnswer has 'message'
-					images: (edAnswer.images as EdStemImage[] | undefined | null) || [], // Cast images to EdStemImage[] or handle appropriately
+					images: client.extractImageUrls(edAnswer.message as string), // Cast images to EdStemImage[] or handle appropriately
 					isResolved: edAnswer.is_resolved ?? false,
 					createdAt: new Date(edAnswer.created_at),
 					updatedAt: new Date(edAnswer.updated_at),
@@ -129,11 +138,11 @@ async function syncAnswersForThread(threadId: number, courseId: number, client: 
 	}
 }
 
-async function syncThreadsForCourse(courseId: number, client: EDClient, token: string): Promise<ThreadSyncStats> {
+async function syncThreadsForCourse(courseId: number, client: EDClient): Promise<ThreadSyncStats> {
 	console.log(`Syncing threads for course ${courseId}...`);
 	let edThreadsFromAPI: EDListedThread[] = []; 
 	try {
-		edThreadsFromAPI = await client.getThreadsForCourse(token, courseId); // Returns EDListedThread[]
+		edThreadsFromAPI = await client.getThreadsForCourse(courseId); // Returns EDListedThread[]
 
 		if (!edThreadsFromAPI || edThreadsFromAPI.length === 0) {
 			console.log(`No threads found for course ${courseId} from EdStem or threads array is empty.`);
@@ -154,7 +163,7 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, token: s
 				const threadData = {
 					courseId: courseId,
 					title: edThread.title,
-					message: edThread.message || null, // EDListedThread has 'message'
+					message: typeof edThread.message === 'string' ? edThread.message : null,
 					category: edThread.category || null,
 					subcategory: edThread.subcategory || null,
 					subsubcategory: edThread.subsubcategory || null,
@@ -163,7 +172,7 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, token: s
 					isStudentAnswered: edThread.is_student_answered ?? false,
 					createdAt: new Date(edThread.created_at),
 					updatedAt: new Date(edThread.updated_at),
-					images: (edThread.images as EdStemImage[] | undefined | null) || [], // Cast images to EdStemImage[] or handle appropriately
+					images: client.extractImageUrls(edThread.content as string),
 				};
 
 				if (existingThread) {
@@ -172,12 +181,12 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, token: s
 							.set({ ...threadData, updatedAt: new Date(edThread.updated_at) })
 							.where(eq(threads.id, edThread.id));
 						threadsUpdated++;
-						await syncAnswersForThread(edThread.id, courseId, client, token);
+						await syncAnswersForThread(edThread.id, client);
 					}
 				} else {
 					await db.insert(threads).values({ id: edThread.id, ...threadData });
 					threadsInserted++;
-					await syncAnswersForThread(edThread.id, courseId, client, token);
+					await syncAnswersForThread(edThread.id, client);
 				}
 			} catch (error) {
 				threadsErrored++;
@@ -199,50 +208,36 @@ export async function syncEdStemCourses(options: EdStemSyncOptions): Promise<{
     count: number;
     results: CourseSyncResult[];
     lastSynced: Date | null;
-    endpoint: string;
 }> {
 	const { apiKey, courseId } = options;
 	const client = new EDClient(apiKey);
 
 	try {
-		console.log("Attempting to get EdStem token for syncing courses via user info...");
-		const token = await client.getToken();
-		console.log("Successfully obtained token for syncing courses via user info.");
-
-		const endpointToUse = "https://eu.edstem.org/api/user";
-		console.log(`Fetching user info (containing courses) from: ${endpointToUse} with new token.`);
+		const coursesResp = await client.getCourses();
 		
-		const userInfo = await client.getUserInfo(token); // Returns EDUserApiResponse
-		
-		if (!userInfo.courses || userInfo.courses.length === 0) {
-			console.log("No courses found in user info response or courses array is empty.");
+		if (coursesResp.length === 0) {
+			console.log("[EDSTEM.ts] No courses found in user info response or courses array is empty.");
 			let lastSyncDate: Date | null = null;
 			try {
 				lastSyncDate = await getLastSyncDate();
 			} catch (dbError) {
 				 if (dbError && typeof dbError === 'object' && 'code' in dbError && (dbError as {code: string}).code === '42P01') {
-					console.warn("getLastSyncDate failed because 'courses' table does not exist. Setup migrations.");
+					console.warn("[EDSTEM.ts] getLastSyncDate failed because 'courses' table does not exist. Setup migrations.");
 				} else {
-					console.error("Unknown DB error in getLastSyncDate (when no courses):", dbError);
+					console.error("[EDSTEM.ts] Unknown DB error in getLastSyncDate (when no courses):", dbError);
 				}
 			}
 			return {
 				count: 0,
 				results: [],
-				lastSynced: lastSyncDate,
-				endpoint: endpointToUse,
+				lastSynced: lastSyncDate
 			};
 		}
-		console.log(`Received ${userInfo.courses.length} course entries from EdStem user info`);
+		console.log(`[EDSTEM.ts] Received ${coursesResp.length} course entries from EdStem user info`);
 		
 		const syncResults: CourseSyncResult[] = [];
 
-		for (const userCourseEntry of userInfo.courses) { // userCourseEntry is EDUserCourseEntry
-			const edCourse = userCourseEntry.course; // edCourse is EDCourse
-            if (!client.isCourseActive(edCourse)) {
-                console.log(`Skipping inactive course ${edCourse.id} (${edCourse.name}) because it's not active.`);
-                continue;
-            }
+		for (const edCourse of coursesResp) { // userCourseEntry is EDUserCourseEntry
 			const courseActionResult: CourseSyncResult = {
                 id: edCourse.id,
                 action: "skipped",
@@ -283,7 +278,7 @@ export async function syncEdStemCourses(options: EdStemSyncOptions): Promise<{
 					courseActionResult.action = "inserted";
 				}
 				
-				const threadSyncStats = await syncThreadsForCourse(edCourse.id, client, token);
+				const threadSyncStats = await syncThreadsForCourse(edCourse.id, client);
 				courseActionResult.threads = threadSyncStats;
 
 			} catch (error) {
@@ -293,7 +288,7 @@ export async function syncEdStemCourses(options: EdStemSyncOptions): Promise<{
 					console.warn(`DB operation failed for course ${edCourse.id} because 'courses' table does not exist. Setup migrations.`);
 					courseActionResult.error = "Database table 'courses' not found.";
 				}
-				console.error(`Error processing course ${edCourse.id} from user info:`, error);
+				console.error(`[EDSTEM.ts] Error processing course ${edCourse.id} from user info:`, error);
 			}
 			syncResults.push(courseActionResult);
 		}
@@ -315,16 +310,14 @@ export async function syncEdStemCourses(options: EdStemSyncOptions): Promise<{
 		return {
 			count: syncResults.filter(r => r.action === 'inserted' || r.action === 'updated').length,
 			results: syncResults,
-			lastSynced: latestOverallSyncDate,
-			endpoint: endpointToUse,
+			lastSynced: latestOverallSyncDate
 		};
 	} catch (error) {
 		console.error("Error in syncEdStemCourses (using getUserInfo):", error);
 		return {
 			count: 0,
 			results: [{ id: null as number | null, action: "error_main" as const, error: String(error), threads: {} }],
-			lastSynced: null,
-			endpoint: "https://eu.edstem.org/api/user",
+			lastSynced: null
 		};
 	}
 }
