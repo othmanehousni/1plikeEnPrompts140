@@ -59,4 +59,10 @@ export const ExternalLinkIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props)
       <line x1="10" y1="14" x2="21" y2="3" />
     </svg>
   );
-}; 
+};
+
+export * from "./CheckIcon";
+export * from "./ChevronDownIcon";
+export * from "./MoonIcon";
+export * from "./SunIcon";
+export * from "./together-ai"; // Assuming this exports a component like the others 

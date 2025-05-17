@@ -210,6 +210,80 @@ const SearchResults = ({ results }: { results: SearchResult[] }) => {
 	);
 };
 
+// Loading spinner component
+const LoadingSpinner = () => (
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		width="18"
+		height="18"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth="2"
+		strokeLinecap="round"
+		strokeLinejoin="round"
+		aria-hidden="true"
+	>
+		<path d="M21 12a9 9 0 1 1-6.219-8.56" />
+	</svg>
+);
+
+// Loading indicator component
+const Loading = ({ tool }: { tool?: string }) => {
+	const toolDisplayNames: Record<string, string> = {
+		getInformation: "Getting information",
+		addResource: "Adding information",
+		understandQuery: "Understanding query",
+		Transcribing: "Transcribing...",
+	};
+	const defaultToolName = tool === "Transcribing..." ? "" : "Thinking";
+
+	const displayName =
+		tool && toolDisplayNames[tool]
+			? toolDisplayNames[tool]
+			: tool || defaultToolName;
+
+	return (
+		<AnimatePresence mode="wait">
+			<motion.div
+				initial={{ opacity: 0 }}
+				animate={{ opacity: 1 }}
+				exit={{ opacity: 0 }}
+				transition={{ type: "spring" }}
+				className="overflow-hidden flex justify-start items-center"
+			>
+				<div className="flex flex-row gap-2 items-center">
+					<div className="animate-spin text-muted-foreground">
+						<LoadingSpinner />
+					</div>
+					<div className="text-muted-foreground text-sm">
+						{displayName}{displayName ? "..." : ""}
+					</div>
+				</div>
+			</motion.div>
+		</AnimatePresence>
+	);
+};
+
+// Assistant message component
+const AssistantMessage = ({ message }: { message: { id: string; content: string } }) => {
+	if (!message) return null;
+
+	return (
+		<AnimatePresence mode="wait">
+			<motion.div
+				key={message.id}
+				initial={{ opacity: 0 }}
+				animate={{ opacity: 1 }}
+				exit={{ opacity: 0 }}
+				className="whitespace-pre-wrap font-mono text-sm text-foreground overflow-hidden"
+			>
+				{message.content}
+			</motion.div>
+		</AnimatePresence>
+	);
+};
+
 export default function Chat({
 	edStemApiKey,
 	togetherApiKey,
@@ -310,6 +384,12 @@ export default function Chat({
 		},
 	});
 
+	// Get the latest messages for display
+	const userQuery = messages.filter(m => m.role === 'user').slice(-1)[0];
+	const lastAssistantMessage = messages.filter(m => m.role === 'assistant').slice(-1)[0];
+	const currentToolCall = isLoading ? "Thinking" : undefined;
+	const awaitingResponse = isLoading && !currentToolCall;
+
 	const handleMicPress = () => {
 		setIsRecording((prev) => !prev);
 		// This is a stub - actual implementation would be handled in the parent component
@@ -338,13 +418,6 @@ export default function Chat({
 		}
 	}, [messages, onMessagesChange]);
 
-	// Animation variants for messages
-	const messageVariants = {
-		hidden: { opacity: 0, y: 20 },
-		visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
-		exit: { opacity: 0, transition: { duration: 0.2 } },
-	};
-
 	return (
 		<>
 			{/* Course Selection Dropdown */}
@@ -354,35 +427,34 @@ export default function Chat({
 						type="button"
 						onClick={() => setIsCoursesDropdownOpen(!isCoursesDropdownOpen)}
 						className={cn(
-							"flex items-center justify-between w-full px-3 py-1.5 text-sm rounded-md",
-							"bg-neutral-300 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200",
-							"hover:bg-neutral-400 dark:hover:bg-neutral-600 transition-colors",
+							"flex items-center justify-between w-full px-3 py-1.5 text-sm rounded-md transition-colors",
+							"bg-card hover:bg-card/80 dark:bg-card dark:hover:bg-card/80"
 						)}
 					>
 						<div className="flex items-center gap-2">
-							<span className="text-xs opacity-70">Course:</span>
-							<span className="truncate max-w-[300px]">
+							<span className="text-xs text-muted-foreground">Course:</span>
+							<span className="truncate max-w-[300px] text-primary dark:text-primary">
 								{selectedCourse
 									? `${selectedCourse.code || ""} ${selectedCourse.name || ""}`.trim()
 									: "Select a course"}
 							</span>
 						</div>
-						<ChevronDownIcon className="h-4 w-4" />
+						<ChevronDownIcon className="h-4 w-4 text-muted-foreground" />
 					</button>
 
 					{isCoursesDropdownOpen && (
-						<div className="absolute z-10 mt-1 w-full rounded-md shadow-lg bg-white dark:bg-neutral-800 ring-1 ring-black ring-opacity-5 focus:outline-none">
+						<div className="absolute z-10 mt-1 w-full rounded-md shadow-lg bg-card dark:bg-card ring-1 ring-border dark:ring-border focus:outline-none">
 							<div className="py-1 max-h-48 overflow-auto">
 								{courses.map((course) => (
 									<button
 										type="button"
 										key={course.id}
 										className={cn(
-											"flex items-center justify-between w-full px-4 py-2 text-sm",
-											"hover:bg-neutral-200 dark:hover:bg-neutral-700",
+											"flex items-center justify-between w-full px-4 py-2 text-sm transition-colors",
+											"hover:bg-primary/10 dark:hover:bg-primary/20 hover:text-primary dark:hover:text-primary",
 											selectedCourse?.id === course.id
-												? "bg-neutral-300 dark:bg-neutral-600"
-												: "",
+												? "bg-primary/20 text-primary font-semibold dark:text-primary"
+												: "text-foreground"
 										)}
 										onClick={() => {
 											setSelectedCourse(course);
@@ -393,7 +465,7 @@ export default function Chat({
 											{course.code} {course.name}
 										</span>
 										{selectedCourse?.id === course.id && (
-											<CheckIcon className="h-4 w-4" />
+											<CheckIcon className="h-4 w-4 text-primary dark:text-primary" />
 										)}
 									</button>
 								))}
@@ -402,164 +474,6 @@ export default function Chat({
 					)}
 				</div>
 			)}
-
-			{/* Chat Messages */}
-			<div className="flex flex-col gap-4 mb-4">
-				<AnimatePresence>
-					{messages.map((message) => (
-						<motion.div
-							key={message.id}
-							variants={messageVariants}
-							initial="hidden"
-							animate="visible"
-							exit="exit"
-							className={`${message.role === 'user' ? 'text-neutral-500 dark:text-neutral-400 text-sm' : 'whitespace-pre-wrap font-mono text-sm text-neutral-800 dark:text-neutral-200'}`}
-						>
-							{message.role === 'user' ? (
-								<div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">{message.content}</div>
-							) : (
-								<div className="space-y-2">
-									{message.parts.map((part, i) => {
-										const partId = `${message.id}-part-${i}`;
-										
-										switch (part.type) {
-											case 'text':
-												return (
-													<motion.div 
-														key={partId}
-														initial={{ opacity: 0 }}
-														animate={{ opacity: 1 }}
-														transition={{ delay: i * 0.05 }}
-														className="p-2 bg-neutral-50 dark:bg-neutral-800 rounded-lg"
-													>
-														{part.text}
-													</motion.div>
-												);
-											
-											case 'step-start':
-												return i > 0 ? (
-													<motion.div 
-														key={partId} 
-														initial={{ width: 0 }}
-														animate={{ width: "100%" }}
-														transition={{ duration: 0.5 }}
-														className="text-neutral-500 dark:text-neutral-400"
-													>
-														<hr className="my-2 border-neutral-300 dark:border-neutral-700" />
-													</motion.div>
-												) : null;
-											
-											case 'tool-invocation': {
-												const toolInvocation = part.toolInvocation;
-												const callId = toolInvocation.toolCallId;
-												
-												// Handle different tools based on their name
-												switch (toolInvocation.toolName) {
-													case 'searchEdCourse': {
-														switch (toolInvocation.state) {
-															case 'partial-call':
-																return (
-																	<div key={partId} className="text-neutral-500 dark:text-neutral-400 text-xs my-1 italic">
-																		<motion.div
-																			initial={{ opacity: 0 }}
-																			animate={{ opacity: 1 }}
-																			transition={{ repeat: Number.POSITIVE_INFINITY, duration: 1.5, repeatType: "reverse" }}
-																		>
-																			Searching course content...
-																		</motion.div>
-																	</div>
-																);
-															case 'call':
-																return (
-																	<div key={partId} className="text-neutral-500 dark:text-neutral-400 text-xs my-1 italic">
-																		Searching for: {toolInvocation.args.query}
-																	</div>
-																);
-															case 'result':
-																return (
-																	<div key={partId}>
-																		<SearchResults results={toolInvocation.result?.results || []} />
-																	</div>
-																);
-														}
-														break;
-													}
-													
-													// Generic handler for other tool types
-													default: {
-														switch (toolInvocation.state) {
-															case 'partial-call':
-																return (
-																	<div key={partId} className="text-neutral-500 dark:text-neutral-400 text-xs my-1 italic">
-																		Using tool: {toolInvocation.toolName}...
-																	</div>
-																);
-															case 'call':
-																return (
-																	<div key={partId} className="text-neutral-500 dark:text-neutral-400 text-xs my-1 italic">
-																		Using tool: {toolInvocation.toolName} with args: {JSON.stringify(toolInvocation.args)}
-																	</div>
-																);
-															case 'result':
-																return (
-																	<div key={partId} className="text-neutral-500 dark:text-neutral-400 text-xs my-1">
-																		Tool result: {JSON.stringify(toolInvocation.result)}
-																	</div>
-																);
-															default:
-																return null;
-														}
-													}
-												}
-												return null;
-											}
-
-											default:
-												return null;
-										}
-									})}
-								</div>
-							)}
-						</motion.div>
-					))}
-				</AnimatePresence>
-
-				{/* Loading Indicator */}
-				{isLoading && (
-					<motion.div
-						initial={{ opacity: 0 }}
-						animate={{ opacity: 1 }}
-						className="flex items-center gap-2 text-neutral-500 dark:text-neutral-400"
-					>
-						<motion.div
-							animate={{ rotate: 360 }}
-							transition={{
-								repeat: Number.POSITIVE_INFINITY,
-								duration: 1,
-								ease: "linear",
-							}}
-						>
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								width="18"
-								height="18"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-								strokeLinejoin="round"
-								aria-hidden="true"
-							>
-								<path d="M21 12a9 9 0 1 1-6.219-8.56" />
-							</svg>
-						</motion.div>
-						<div className="text-sm">
-							{isTranscribing ? "Transcribing..." : "Thinking..."}
-						</div>
-					</motion.div>
-				)}
-			</div>
 
 			{/* Input Form */}
 			<PromptInputWithActions
@@ -597,6 +511,40 @@ export default function Chat({
 				isRecording={isRecording}
 				micButtonDisabled={isLoading || isSpeaking || isTranscribing}
 			/>
+
+			{/* Messages Display */}
+			<motion.div
+				transition={{
+					type: "spring",
+				}}
+				className="min-h-fit flex flex-col gap-2"
+			>
+				<AnimatePresence>
+					{awaitingResponse || currentToolCall || isTranscribing ? (
+						<div className="px-2 min-h-12">
+							{userQuery && !isTranscribing && (
+								<div className="text-muted-foreground text-sm w-fit mb-1">
+									{userQuery.content}
+								</div>
+							)}
+							<Loading
+								tool={
+									isTranscribing ? "Transcribing..." : currentToolCall
+								}
+							/>
+						</div>
+					) : lastAssistantMessage ? (
+						<div className="px-2 min-h-12">
+							{userQuery && (
+								<div className="text-muted-foreground text-sm w-fit mb-1">
+									{userQuery.content}
+								</div>
+							)}
+							<AssistantMessage message={lastAssistantMessage} />
+						</div>
+					) : null}
+				</AnimatePresence>
+			</motion.div>
 		</>
 	);
 }
