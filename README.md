@@ -1,5 +1,43 @@
 # Ask-Ed Monorepo
 
+A personal assistant built with TogetherAI and Next.js.
+
+## Setup
+
+1. Clone the repository
+2. Install dependencies with `npm install` or `bun install`
+3. Start the development server
+4. Get your TogetherAI API key from [TogetherAI](https://together.ai)
+5. Once the app is running, click the settings button and add your API key
+
+## Development
+
+Run the development server:
+
+```bash
+npm run dev
+# or
+bun run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) to see the result.
+
+## Features
+
+- Chat with a personal assistant powered by TogetherAI
+- Custom toast notifications
+- Tool-based interactions
+- Beautiful UI with animations
+- Local storage of API keys
+
+## Project Structure
+
+- `packages/web`: Web application
+- `packages/extension`: Browser extension (coming soon)
+- `packages/shared`: Shared code between packages
+
+# Ask-Ed Monorepo
+
 This monorepo contains:
 
 1. `@ask-ed/web` - Next.js web application
