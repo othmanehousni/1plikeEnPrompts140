@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { answers, threads } from "@/lib/db/schema";
 import { generateEmbeddings } from "@/lib/embeddings";
-import { sql } from "drizzle-orm";
+import { sql, eq, desc, and, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
@@ -63,7 +63,7 @@ export async function POST(req: Request) {
 			);
 		}
 
-		// Search in threads
+		// Search in threads - Récupérer les threads similaires
 		const threadResults = await db
 			.select({
 				id: threads.id,
@@ -84,16 +84,66 @@ export async function POST(req: Request) {
 				sql`${threads.courseId} = ${courseIdInt} AND ${threads.embedding} IS NOT NULL`,
 			)
 			.orderBy(sql`similarity DESC`)
-			.limit(limit);
+			.limit(limit * 2); // Get more threads to have more answers to choose from
 
-		// Search in answers
-		const answerResults = await db
+		// Extract thread IDs to find their answers
+		const threadIds = threadResults.map(thread => thread.id);
+		
+		// Early exit if no similar threads found
+		if (threadIds.length === 0) {
+			return NextResponse.json({
+				results: [],
+				query,
+				courseId,
+				message: "No similar threads found"
+			});
+		}
+		
+		console.log(`[SEARCH_API] Found ${threadIds.length} similar threads: ${threadIds.join(', ')}`);
+		
+		// Get all answers for the similar threads
+		const threadAnswers = await db
 			.select({
 				id: answers.id,
 				threadId: answers.threadId,
 				content: answers.message,
 				createdAt: answers.createdAt,
 				courseId: answers.courseId,
+				isResolved: answers.isResolved,
+				// If embedding exists, calculate similarity, otherwise use -1 as a placeholder
+				similarity: answers.embedding 
+					? sql`1 - (${answers.embedding} <=> ${JSON.stringify(queryEmbedding)})`.as("similarity")
+					: sql`-1`.as("similarity"),
+			})
+			.from(answers)
+			.where(
+				and(
+					eq(answers.courseId, courseIdInt),
+					threadIds.length > 0 ? inArray(answers.threadId, threadIds) : sql`FALSE`
+				)
+			)
+			.orderBy(desc(answers.createdAt));
+		
+		console.log(`[SEARCH_API] Found ${threadAnswers.length} answers for similar threads`);
+		
+		// Build a thread-to-answers mapping for easier processing
+		const threadAnswersMap = new Map<number, typeof threadAnswers>();
+		threadAnswers.forEach(answer => {
+			if (!threadAnswersMap.has(answer.threadId)) {
+				threadAnswersMap.set(answer.threadId, []);
+			}
+			threadAnswersMap.get(answer.threadId)?.push(answer);
+		});
+		
+		// Also do a direct search in answers to find any that are directly relevant
+		const directAnswerResults = await db
+			.select({
+				id: answers.id,
+				threadId: answers.threadId,
+				content: answers.message,
+				createdAt: answers.createdAt,
+				courseId: answers.courseId,
+				isResolved: answers.isResolved,
 				// Calculate vector similarity (cosine similarity)
 				similarity:
 					sql`1 - (${answers.embedding} <=> ${JSON.stringify(queryEmbedding)})`.as(
@@ -106,7 +156,7 @@ export async function POST(req: Request) {
 			)
 			.orderBy(sql`similarity DESC`)
 			.limit(limit);
-
+		
 		// Generate EdStem URLs
 		const generateEdUrl = (
 			type: string,
@@ -121,42 +171,83 @@ export async function POST(req: Request) {
 			}
 			return null;
 		};
-
-		// Format results with enhanced metadata
+		
+		// Format thread results with their answers
+		const formattedThreadResults = threadResults
+			.filter(thread => threadAnswersMap.has(thread.id)) // Only include threads that have answers
+			.map(thread => {
+				const threadAnswers = threadAnswersMap.get(thread.id) || [];
+				// For each thread, compute the max similarity of its answers
+				const maxAnswerSimilarity = Math.max(
+					...threadAnswers.map(answer => Number.parseFloat(String(answer.similarity)) || 0),
+					0 // Default if there are no answers or all similarities are NaN
+				);
+				
+				// Sort answers from newest to oldest
+				const sortedAnswers = [...threadAnswers].sort((a, b) => {
+					// Resolved answers first
+					if (a.isResolved && !b.isResolved) return -1;
+					if (!a.isResolved && b.isResolved) return 1;
+					
+					// Then by date (newest first)
+					const dateA = a.createdAt ? new Date(a.createdAt) : new Date(0);
+					const dateB = b.createdAt ? new Date(b.createdAt) : new Date(0);
+					return dateB.getTime() - dateA.getTime();
+				});
+				
+				// Get the best answer (resolved or most recent)
+				const bestAnswer = sortedAnswers[0];
+				
+				return {
+					id: String(thread.id),
+					title: thread.title || "Thread",
+					// Include both thread content and the best answer
+					content: `Question: ${thread.content || ""}\n\nBest Answer: ${bestAnswer?.content || "No answer available"}`,
+					// Use the max of thread similarity and best answer similarity
+					similarity: Math.max(
+						Number.parseFloat(String(thread.similarity)) || 0,
+						maxAnswerSimilarity
+					),
+					metadata: {
+						source: "thread_with_answers",
+						category: thread.category || "uncategorized",
+						subcategory: thread.subcategory || undefined,
+						date: thread.createdAt
+							? new Date(thread.createdAt).toISOString()
+							: undefined,
+						url: generateEdUrl("thread", thread.id),
+						threadId: String(thread.id),
+						courseId: String(courseIdInt),
+						answerCount: threadAnswers.length,
+						bestAnswerId: bestAnswer ? String(bestAnswer.id) : undefined,
+						isResolved: bestAnswer?.isResolved || false,
+					},
+				};
+			});
+		
+		// Format direct answer results
+		const formattedDirectAnswerResults = directAnswerResults.map(answer => ({
+			id: String(answer.id),
+			title: "Direct Answer",
+			content: answer.content || "",
+			similarity: Number.parseFloat(String(answer.similarity)) || 0,
+			metadata: {
+				source: "direct_answer",
+				threadId: String(answer.threadId),
+				answerId: String(answer.id),
+				date: answer.createdAt
+					? new Date(answer.createdAt).toISOString()
+					: undefined,
+				url: generateEdUrl("answer", answer.id, answer.threadId),
+				courseId: String(courseIdInt),
+				isResolved: answer.isResolved || false,
+			},
+		}));
+		
+		// Combine and sort all results
 		const formattedResults = [
-			...threadResults.map((thread) => ({
-				id: String(thread.id),
-				title: thread.title || "Thread",
-				content: thread.content || "",
-				similarity: Number.parseFloat(String(thread.similarity)) || 0,
-				metadata: {
-					source: "thread",
-					category: thread.category || "uncategorized",
-					subcategory: thread.subcategory || undefined,
-					date: thread.createdAt
-						? new Date(thread.createdAt).toISOString()
-						: undefined,
-					url: generateEdUrl("thread", thread.id),
-					threadId: String(thread.id),
-					courseId: String(courseIdInt),
-				},
-			})),
-			...answerResults.map((answer) => ({
-				id: String(answer.id),
-				title: "Answer",
-				content: answer.content || "",
-				similarity: Number.parseFloat(String(answer.similarity)) || 0,
-				metadata: {
-					source: "answer",
-					threadId: String(answer.threadId),
-					answerId: String(answer.id),
-					date: answer.createdAt
-						? new Date(answer.createdAt).toISOString()
-						: undefined,
-					url: generateEdUrl("answer", answer.id, answer.threadId),
-					courseId: String(courseIdInt),
-				},
-			})),
+			...formattedThreadResults,
+			...formattedDirectAnswerResults,
 		]
 			// Sort combined results by similarity
 			.sort((a, b) => b.similarity - a.similarity)
