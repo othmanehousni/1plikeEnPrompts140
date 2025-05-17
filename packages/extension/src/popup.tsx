@@ -5,6 +5,7 @@ function IndexPopup() {
 	const [token, setToken] = useState<string>("Token non disponible");
 	const [syncStatus, setSyncStatus] = useState<string>("");
 	const [isSyncing, setIsSyncing] = useState(false);
+	const [isChecking, setIsChecking] = useState(false);
 
 	useEffect(() => {
 		// Récupérer le token depuis le stockage local
@@ -46,6 +47,27 @@ function IndexPopup() {
 			setSyncStatus("Erreur de synchronisation. Veuillez réessayer.");
 		} finally {
 			setIsSyncing(false);
+			// Reset status message after 3 seconds
+			setTimeout(() => setSyncStatus(""), 3000);
+		}
+	};
+
+	const checkStatus = async () => {
+		try {
+			setIsChecking(true);
+			setSyncStatus("Vérification du statut...");
+			
+			// Send a message to the background script to check sync status
+			await chrome.runtime.sendMessage({
+				action: "getSyncStatus"
+			});
+			
+			setSyncStatus("Consultez la console pour le statut détaillé");
+		} catch (error) {
+			console.error("[ED Extension] Error checking status:", error);
+			setSyncStatus("Erreur de vérification du statut");
+		} finally {
+			setIsChecking(false);
 			// Reset status message after 3 seconds
 			setTimeout(() => setSyncStatus(""), 3000);
 		}
@@ -98,46 +120,90 @@ function IndexPopup() {
 				{token}
 			</div>
 
-			<button
-				type="button"
-				onClick={startSync}
-				disabled={isSyncing}
-				onFocus={(e) => {
-					e.currentTarget.style.transform = "translateY(-2px)"
-					e.currentTarget.style.boxShadow = "0 6px 12px rgba(138, 43, 226, 0.4)"
-				}}
-				onBlur={(e) => {
-					e.currentTarget.style.transform = "translateY(0)"
-					e.currentTarget.style.boxShadow = "0 4px 8px rgba(138, 43, 226, 0.3)"
-				}}
-				onMouseOver={(e) => {
-					e.currentTarget.style.transform = "translateY(-2px)"
-					e.currentTarget.style.boxShadow = "0 6px 12px rgba(138, 43, 226, 0.4)"
-				}}
-				onMouseOut={(e) => {
-					e.currentTarget.style.transform = "translateY(0)"
-					e.currentTarget.style.boxShadow = "0 4px 8px rgba(138, 43, 226, 0.3)"
-				}}
-				style={{
-					padding: "10px 18px",
-					background: isSyncing
-						? "linear-gradient(135deg, #cccccc, #bbbbbb)"
-						: "linear-gradient(135deg, #8a2be2, #9370db)",
-					color: "white",
-					border: "none",
-					borderRadius: "30px",
-					cursor: isSyncing ? "not-allowed" : "pointer",
-					fontWeight: "600",
-					fontSize: "15px",
-					transition: "all 0.3s ease",
-					boxShadow: "0 4px 8px rgba(138, 43, 226, 0.3)",
-					display: "flex",
-					alignItems: "center",
-					justifyContent: "center",
-				}}
-			>
-				{isSyncing ? "Synchronisation..." : "Synchroniser maintenant"} {isSyncing ? "⟳" : "🔄"}
-			</button>
+			<div style={{ display: "flex", gap: "10px", marginBottom: "12px" }}>
+				<button
+					type="button"
+					onClick={startSync}
+					disabled={isSyncing}
+					onFocus={(e) => {
+						e.currentTarget.style.transform = "translateY(-2px)"
+						e.currentTarget.style.boxShadow = "0 6px 12px rgba(138, 43, 226, 0.4)"
+					}}
+					onBlur={(e) => {
+						e.currentTarget.style.transform = "translateY(0)"
+						e.currentTarget.style.boxShadow = "0 4px 8px rgba(138, 43, 226, 0.3)"
+					}}
+					onMouseOver={(e) => {
+						e.currentTarget.style.transform = "translateY(-2px)"
+						e.currentTarget.style.boxShadow = "0 6px 12px rgba(138, 43, 226, 0.4)"
+					}}
+					onMouseOut={(e) => {
+						e.currentTarget.style.transform = "translateY(0)"
+						e.currentTarget.style.boxShadow = "0 4px 8px rgba(138, 43, 226, 0.3)"
+					}}
+					style={{
+						flex: "1",
+						padding: "10px 18px",
+						background: isSyncing
+							? "linear-gradient(135deg, #cccccc, #bbbbbb)"
+							: "linear-gradient(135deg, #8a2be2, #9370db)",
+						color: "white",
+						border: "none",
+						borderRadius: "30px",
+						cursor: isSyncing ? "not-allowed" : "pointer",
+						fontWeight: "600",
+						fontSize: "15px",
+						transition: "all 0.3s ease",
+						boxShadow: "0 4px 8px rgba(138, 43, 226, 0.3)",
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "center",
+					}}
+				>
+					{isSyncing ? "Synchronisation..." : "Synchroniser"} {isSyncing ? "⟳" : "🔄"}
+				</button>
+				
+				<button
+					type="button"
+					onClick={checkStatus}
+					disabled={isChecking}
+					onFocus={(e) => {
+						e.currentTarget.style.transform = "translateY(-2px)"
+						e.currentTarget.style.boxShadow = "0 6px 12px rgba(25, 118, 210, 0.4)"
+					}}
+					onBlur={(e) => {
+						e.currentTarget.style.transform = "translateY(0)"
+						e.currentTarget.style.boxShadow = "0 4px 8px rgba(25, 118, 210, 0.3)"
+					}}
+					onMouseOver={(e) => {
+						e.currentTarget.style.transform = "translateY(-2px)"
+						e.currentTarget.style.boxShadow = "0 6px 12px rgba(25, 118, 210, 0.4)"
+					}}
+					onMouseOut={(e) => {
+						e.currentTarget.style.transform = "translateY(0)"
+						e.currentTarget.style.boxShadow = "0 4px 8px rgba(25, 118, 210, 0.3)"
+					}}
+					style={{
+						padding: "10px 18px",
+						background: isChecking
+							? "linear-gradient(135deg, #cccccc, #bbbbbb)"
+							: "linear-gradient(135deg, #1976d2, #2196f3)",
+						color: "white",
+						border: "none",
+						borderRadius: "30px",
+						cursor: isChecking ? "not-allowed" : "pointer",
+						fontWeight: "600",
+						fontSize: "15px",
+						transition: "all 0.3s ease",
+						boxShadow: "0 4px 8px rgba(25, 118, 210, 0.3)",
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "center",
+					}}
+				>
+					{isChecking ? "Vérification..." : "Status"} {isChecking ? "⟳" : "📋"}
+				</button>
+			</div>
 			
 			{syncStatus && (
 				<div
@@ -165,7 +231,7 @@ function IndexPopup() {
 					fontStyle: "italic",
 				}}
 			>
-				Cliquez sur "Synchroniser maintenant" pour mettre à jour les posts.
+				Optimisé pour synchroniser uniquement les cours mis à jour.
 			</p>
 		</div>
 	);

@@ -6,14 +6,19 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "dev": "tsc -p tsconfig.build.json --watch"
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "db:generate": "drizzle-kit generate:pg --schema=./src/db/schema.ts",
+    "db:push": "drizzle-kit push:pg --schema=./src/db/schema.ts"
   },
   "dependencies": {
-    "drizzle-orm": "^0.43.1"
+    "@supabase/supabase-js": "^2.49.4",
+    "drizzle-orm": "^0.43.1",
+    "postgres": "^3.4.5"
   },
   "devDependencies": {
     "@types/node": "^20",
+    "dotenv": "^16.5.0",
     "drizzle-kit": "^0.31.1",
     "typescript": "^5"
   }
-} 
+}

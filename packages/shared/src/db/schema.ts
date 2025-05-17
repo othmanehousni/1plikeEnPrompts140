@@ -8,7 +8,7 @@ export const courses = pgTable('courses', {
   code: varchar('code', { length: 20 }).notNull(),
   name: varchar('name', { length: 255 }).notNull(),
   year: varchar('year', { length: 10 }).notNull(),
-  lastActive: timestamp('last_active'),
+  lastSynced: timestamp('last_synced'),
 });
 
 
