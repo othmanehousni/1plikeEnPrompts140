@@ -11,6 +11,8 @@ import { useToast } from "@/hooks/use-toast";
 import { ToastContainer } from "@/components/ui/toast";
 import { useUserPreferences } from "@/lib/stores/user-preferences";
 import { useSyncStatus } from "@/lib/stores/sync-status";
+import { EDCourse } from "@/types/schema/ed.schema";
+import { CheckIcon, ChevronDownIcon } from "@/components/icons";
 
 // Helper for STT
 let mediaRecorder: MediaRecorder | null = null;
@@ -40,6 +42,12 @@ export default function Home() {
 	// STT State
 	const [isRecording, setIsRecording] = useState<boolean>(false);
 	const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
+	
+	// ED Course Selection State
+	const [courses, setCourses] = useState<EDCourse[]>([]);
+	const [selectedCourse, setSelectedCourse] = useState<EDCourse | null>(null);
+	const [isCoursesDropdownOpen, setIsCoursesDropdownOpen] = useState(false);
+	const dropdownRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		setMounted(true);
@@ -62,8 +70,46 @@ export default function Home() {
 			};
 			
 			fetchLastSyncDate();
+			
+			// Fetch available courses
+			const fetchCourses = async () => {
+				try {
+					const response = await fetch('/api/edstem/courses', {
+						headers: {
+							'x-edstem-api-key': edStemApiKey
+						}
+					});
+					if (response.ok) {
+						const data = await response.json();
+						if (data.courses && Array.isArray(data.courses)) {
+							setCourses(data.courses);
+							if (data.courses.length > 0) {
+								setSelectedCourse(data.courses[0]);
+							}
+						}
+					}
+				} catch (error) {
+					console.error('Error fetching courses:', error);
+				}
+			};
+			
+			fetchCourses();
 		}
 	}, [edStemApiKey]);
+	
+	// Handle clicking outside the dropdown to close it
+	useEffect(() => {
+		function handleClickOutside(event: MouseEvent) {
+			if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+				setIsCoursesDropdownOpen(false);
+			}
+		}
+		
+		document.addEventListener("mousedown", handleClickOutside);
+		return () => {
+			document.removeEventListener("mousedown", handleClickOutside);
+		};
+	}, []);
 
 	useEffect(() => {
 		if (!mounted) return;
@@ -76,6 +122,9 @@ export default function Home() {
 			headers: {
 				"x-together-api-key": togetherApiKey || "",
 				"x-groq-api-key": groqApiKey || "",
+			},
+			body: {
+				selectedCourseId: selectedCourse?.id,
 			},
 			onToolCall({ toolCall }) {
 				setToolCall(toolCall.toolName);
@@ -333,6 +382,56 @@ export default function Home() {
 					)}
 				>
 					<div className="flex flex-col w-full justify-between gap-2">
+						{/* Course Selection Dropdown */}
+						{edStemApiKey && (
+							<div className="relative" ref={dropdownRef}>
+								<button
+									onClick={() => setIsCoursesDropdownOpen(!isCoursesDropdownOpen)}
+									className={cn(
+										"flex items-center justify-between w-full px-3 py-1.5 text-sm rounded-md",
+										"bg-neutral-300 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200",
+										"hover:bg-neutral-400 dark:hover:bg-neutral-600 transition-colors"
+									)}
+								>
+									<div className="flex items-center gap-2">
+										<span className="text-xs opacity-70">Course:</span>
+										<span className="truncate max-w-[300px]">
+											{selectedCourse ? `${selectedCourse.code || ''} ${selectedCourse.name || ''}`.trim() : 'Select a course'}
+										</span>
+									</div>
+									<ChevronDownIcon className="h-4 w-4" />
+								</button>
+								
+								{isCoursesDropdownOpen && courses.length > 0 && (
+									<div className="absolute z-10 mt-1 w-full rounded-md shadow-lg bg-white dark:bg-neutral-800 ring-1 ring-black ring-opacity-5 focus:outline-none">
+										<div className="py-1 max-h-48 overflow-auto">
+											{courses.map((course) => (
+												<button
+													key={course.id}
+													className={cn(
+														"flex items-center justify-between w-full px-4 py-2 text-sm",
+														"hover:bg-neutral-200 dark:hover:bg-neutral-700",
+														selectedCourse?.id === course.id 
+															? "bg-neutral-300 dark:bg-neutral-600" 
+															: ""
+													)}
+													onClick={() => {
+														setSelectedCourse(course);
+														setIsCoursesDropdownOpen(false);
+													}}
+												>
+													<span className="truncate">{course.code} {course.name}</span>
+													{selectedCourse?.id === course.id && (
+														<CheckIcon className="h-4 w-4" />
+													)}
+												</button>
+											))}
+										</div>
+									</div>
+								)}
+							</div>
+						)}
+						
 						<PromptInputWithActions 
 							value={input}
 							onValueChange={setInput}
