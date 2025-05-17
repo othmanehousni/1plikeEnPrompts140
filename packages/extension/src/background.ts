@@ -1,30 +1,11 @@
+import type { EDCourse, EDThread, ExtensionMessage, FetchPostsResult, SendResponsePayload, DbCourse } from "@ask-ed/shared";
+
 // Background service worker to handle sync and provide API token
 let syncInProgress = false;
 let pendingSync = false;
 
-// Interface for ED post
-interface EdPost {
-  id: number;
-  courseId: number;
-  createdAt: string;
-  [key: string]: any; // Allow other properties
-}
-
-// Interface for course data
-interface EdCourse {
-  id: number;
-  lastActive?: string;
-  [key: string]: any; // Allow other properties
-}
-
-// Interface for database course
-interface DbCourse {
-  id: number;
-  lastSynced: string | null;
-}
-
 // Function to fetch new posts from ED API
-async function fetchNewPosts(token: string, lastSyncTime: number): Promise<any> {
+async function fetchNewPosts(token: string, lastSyncTime: number): Promise<FetchPostsResult> {
   try {
     // First, fetch course metadata to check activity timestamps
     const apiUrl = "https://edstem.org/api/courses";
@@ -41,7 +22,7 @@ async function fetchNewPosts(token: string, lastSyncTime: number): Promise<any> 
       throw new Error(`API request failed with status ${coursesResponse.status}`);
     }
     
-    const coursesData = await coursesResponse.json() as EdCourse[];
+    const coursesData = await coursesResponse.json() as EDCourse[];
     
     // Fetch the lastSynced timestamps from our database
     const dbCoursesResponse = await fetch("http://localhost:3000/api/courses/sync-status", {
@@ -57,13 +38,14 @@ async function fetchNewPosts(token: string, lastSyncTime: number): Promise<any> 
     
     // Map course IDs to their lastSynced timestamps from our database
     const courseLastSynced = new Map<number, number>();
-    dbCourses.forEach(course => {
+    for (const course of dbCourses) {
       courseLastSynced.set(course.id, course.lastSynced ? new Date(course.lastSynced).getTime() : 0);
-    });
+    }
     
     // Filter courses that need syncing (lastActive > lastSynced)
     const coursesToSync = coursesData.filter(course => {
-      const lastActive = course.lastActive ? new Date(course.lastActive).getTime() : Date.now();
+      // EDCourseSchema uses last_active_at
+      const lastActive = course.last_active_at ? new Date(course.last_active_at).getTime() : Date.now();
       const lastSynced = courseLastSynced.get(course.id) || 0;
       return lastActive > lastSynced;
     });
@@ -75,13 +57,15 @@ async function fetchNewPosts(token: string, lastSyncTime: number): Promise<any> 
     
     console.log(`[ED Extension] Syncing ${coursesToSync.length} courses with new activity`);
     
-    // Now fetch posts only for courses that need syncing
-    const courseIds = coursesToSync.map(course => course.id);
-    const allNewPosts: EdPost[] = [];
+    const courseIdsToSync = coursesToSync.map(course => course.id);
+    const allNewPosts: EDThread[] = []; // Use EDThread[]
     
-    // Fetch posts for each course that needs syncing
-    for (const courseId of courseIds) {
-      const postsUrl = `https://edstem.org/api/courses/${courseId}/threads`;
+    for (const course of coursesToSync) {
+      const courseId = course.id;
+      // The Ed API for threads might return an array of EDThread directly, or EDThreadResponse which has a thread and users
+      // Assuming it returns EDThread[] for simplicity based on previous EdPost[] structure.
+      // If it returns EDThreadResponse[], modification will be needed here.
+      const postsUrl = `https://edstem.org/api/courses/${courseId}/threads`; 
       const postsResponse = await fetch(postsUrl, {
         method: "GET",
         headers: {
@@ -95,14 +79,20 @@ async function fetchNewPosts(token: string, lastSyncTime: number): Promise<any> 
         continue;
       }
       
-      const postsData = await postsResponse.json();
+      // Assuming postsData is an array of EDThread objects
+      const threadsData = await postsResponse.json() as EDThread[]; 
       
-      // Filter posts created after the last sync time
-      const newPosts = postsData.filter((post: any) => 
-        new Date(post.createdAt).getTime() > lastSyncTime
+      const newThreads = threadsData.filter((thread: EDThread) => 
+        new Date(thread.created_at).getTime() > lastSyncTime
       );
       
-      allNewPosts.push(...newPosts);
+      // Ensure courseId is correctly part of each thread, EDThreadSchema has course_id
+      const postsWithCourseData = newThreads.map(t => ({
+        ...t,
+        course_id: course.id, // Ensure course_id is set, matching EDThreadSchema
+      }));
+      
+      allNewPosts.push(...postsWithCourseData);
     }
     
     console.log(`[ED Extension] Found ${allNewPosts.length} new posts since last sync`);
@@ -110,8 +100,8 @@ async function fetchNewPosts(token: string, lastSyncTime: number): Promise<any> 
     return { 
       success: true, 
       newPostsCount: allNewPosts.length, 
-      posts: allNewPosts,
-      syncedCourseIds: courseIds
+      posts: allNewPosts, // This is now EDThread[]
+      syncedCourseIds: courseIdsToSync
     };
   } catch (error: unknown) {
     console.error("[ED Extension] Error fetching posts:", error);
@@ -122,8 +112,7 @@ async function fetchNewPosts(token: string, lastSyncTime: number): Promise<any> 
 // Function to update lastSynced timestamp for courses
 async function updateLastSynced(courseIds: number[]): Promise<boolean> {
   try {
-    const apiUrl = "http://localhost:3000/api/sync"; // Replace with your actual API URL in production
-    
+    const apiUrl = "http://localhost:3000/api/sync";
     const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
@@ -131,14 +120,11 @@ async function updateLastSynced(courseIds: number[]): Promise<boolean> {
       },
       body: JSON.stringify({ courseIds })
     });
-    
     if (!response.ok) {
       throw new Error(`API request failed with status ${response.status}`);
     }
-    
     const result = await response.json();
     console.log(`[ED Extension] Updated lastSynced timestamps: ${result.message}`);
-    
     return true;
   } catch (error) {
     console.error("[ED Extension] Error updating lastSynced:", error);
@@ -147,64 +133,61 @@ async function updateLastSynced(courseIds: number[]): Promise<boolean> {
 }
 
 // Function to process the sync operation
-async function performSync(token: string, lastSyncTime: number): Promise<any> {
+async function performSync(token: string, lastSyncTime: number): Promise<FetchPostsResult> {
   if (syncInProgress) {
     pendingSync = true;
     return { success: false, message: "Sync already in progress" };
   }
-  
   syncInProgress = true;
-  
   try {
     const result = await fetchNewPosts(token, lastSyncTime);
-    
-    // If we successfully fetched posts, save them to the database
     if (result.success && result.posts && result.posts.length > 0) {
-      // Here you would save the posts to your database
-      // This is where you'd call your API endpoints
-      
+      try {
+        // result.posts is now EDThread[]
+        const saveResponse = await fetch("http://localhost:3000/api/posts/save", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ posts: result.posts }), 
+        });
+        if (!saveResponse.ok) {
+          console.error(`[ED Extension] Failed to save posts: ${saveResponse.status}`);
+        } else {
+          const saveData = await saveResponse.json();
+          console.log(`[ED Extension] Successfully sent ${result.newPostsCount} posts to the backend for saving. Response: ${saveData.message}`);
+        }
+      } catch (saveError: unknown) {
+        console.error("[ED Extension] Error saving posts:", saveError);
+      }
       console.log(`[ED Extension] Successfully synced ${result.newPostsCount} posts`);
     }
-    
-    // Get the course IDs that were synced
     const syncedCourseIds = result.syncedCourseIds || [];
-    
-    // Update lastSynced timestamp for all courses that were synced
     if (syncedCourseIds.length > 0) {
       await updateLastSynced(syncedCourseIds);
     }
-    
     return result;
   } catch (error: unknown) {
     console.error("[ED Extension] Error during sync:", error);
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   } finally {
     syncInProgress = false;
-    
-    // Check if another sync was requested while this one was in progress
     if (pendingSync) {
       pendingSync = false;
-      
-      // Get the latest token and timestamp for the pending sync
-      chrome.storage.local.get(["edAuthToken", "lastSyncTime"], (result) => {
-        if (result.edAuthToken) {
-          performSync(result.edAuthToken, result.lastSyncTime || 0);
+      chrome.storage.local.get(["edAuthToken", "lastSyncTime"], (res) => {
+        if (res.edAuthToken) {
+          performSync(res.edAuthToken, res.lastSyncTime || 0);
         }
       });
     }
   }
 }
 
-// Set up a regular sync interval (e.g., every 30 minutes)
-const SYNC_INTERVAL_MINUTES = 30; // 30 minutes
-
+const SYNC_INTERVAL_MINUTES = 30;
 function scheduleRegularSync() {
-  // Create an alarm that will trigger periodically
   chrome.alarms.create("syncPosts", {
     periodInMinutes: SYNC_INTERVAL_MINUTES
   });
-  
-  // Listen for the alarm
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === "syncPosts") {
       console.log("[ED Extension] Running scheduled sync via alarm");
@@ -216,67 +199,48 @@ function scheduleRegularSync() {
     }
   });
 }
-
-// Start the regular sync schedule
 scheduleRegularSync();
 
-// Listen for external message requests for the token
-chrome.runtime.onMessageExternal.addListener(
-  (request, sender, sendResponse) => {
-    if (request.action === "getEdToken") {
-      // Get the token from storage and send it back
-      chrome.storage.local.get(["edAuthToken"], (result) => {
-        sendResponse({ token: result.edAuthToken || null });
-      });
-      return true; // Allows using sendResponse asynchronously
-    }
-  }
-);
-
-// Function to log debug information about sync status
 async function logSyncStatus() {
   try {
     const dbCoursesResponse = await fetch("http://localhost:3000/api/courses/sync-status", {
       method: "GET",
       headers: { "Content-Type": "application/json" }
     });
-    
     if (!dbCoursesResponse.ok) {
       console.error(`[ED Extension] Failed to fetch course sync status: ${dbCoursesResponse.status}`);
       return;
     }
-    
-    const dbCourses = await dbCoursesResponse.json() as DbCourse[];
-    
+    const dbCourses = await dbCoursesResponse.json() as DbCourse[]; // Use imported DbCourse
     console.log('[ED Extension] Current course sync status:');
-    dbCourses.forEach(course => {
+    for (const course of dbCourses) {
       console.log(`Course ID ${course.id}: Last synced ${course.lastSynced || 'never'}`);
-    });
-  } catch (error) {
+    }
+  } catch (error: unknown) {
     console.error('[ED Extension] Error logging sync status:', error);
   }
 }
 
-// Listen for messages from content scripts
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((request: ExtensionMessage, sender: chrome.runtime.MessageSender, sendResponse: (response?: SendResponsePayload) => void) => {
   if (request.action === "startSync") {
-    // Start the syncing process
-    performSync(request.token, request.lastSyncTime)
-      .then(result => {
-        // Log sync status after completion
-        logSyncStatus();
-        sendResponse(result);
-      })
-      .catch(error => {
-        sendResponse({ 
-          success: false, 
-          error: error instanceof Error ? error.message : String(error) 
+    if (request.token && typeof request.lastSyncTime === 'number') {
+      performSync(request.token, request.lastSyncTime)
+        .then(result => {
+          logSyncStatus();
+          sendResponse(result);
+        })
+        .catch(error => {
+          sendResponse({ 
+            success: false, 
+            error: error instanceof Error ? error.message : String(error) 
+          });
         });
-      });
-    
-    return true; // Allows using sendResponse asynchronously
-  } else if (request.action === "getSyncStatus") {
-    // Return debug information about sync status
+    } else {
+      sendResponse({ success: false, error: "Missing token or lastSyncTime for startSync action" });
+    }
+    return true;
+  }
+  if (request.action === "getSyncStatus") {
     logSyncStatus()
       .then(() => {
         sendResponse({ success: true });
@@ -287,7 +251,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           error: error instanceof Error ? error.message : String(error) 
         });
       });
-    
-    return true; // Allows using sendResponse asynchronously
+    return true;
   }
-}); 
+});
+
+chrome.runtime.onMessageExternal.addListener(
+  (request: ExtensionMessage, sender: chrome.runtime.MessageSender, sendResponse: (response?: SendResponsePayload) => void) => {
+    if (request.action === "getEdToken") {
+      chrome.storage.local.get(["edAuthToken"], (result) => {
+        sendResponse({ token: result.edAuthToken || null });
+      });
+      return true;
+    }
+  }
+); 

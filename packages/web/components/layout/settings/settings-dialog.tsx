@@ -9,9 +9,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useUserPreferences } from "@/lib/stores/user-preferences";
+import { useSyncStatus } from "@/lib/stores/sync-status";
 import TogetherAI from "@/components/icons/together-ai";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ThemeSwitcher from "./theme-switcher";
+import { EdStemSyncButton } from "./edstem-sync-button";
 import { BookOpen, Cog } from "lucide-react";
 
 export interface SettingsDialogProps {
@@ -34,6 +36,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 		clearGroqApiKey,
 		hasGroqApiKey,
 	} = useUserPreferences();
+	
+	const { lastSyncedAt } = useSyncStatus();
 
 	const [apiKey, setApiKey] = useState(togetherApiKey || "");
 	const [edStemKey, setEdStemKey] = useState(edStemApiKey || "");
@@ -41,12 +45,13 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 	const [activeTab, setActiveTab] = useState("api-keys");
 
 	// This effect resets the local input states if the persisted values change
-	// or when the dialog is (re)opened. The 'open' dependency is intentional here.
-	// eslint-disable-next-line react-hooks/exhaustive-deps
+	// or when the dialog is (re)opened
 	useEffect(() => {
-		setApiKey(togetherApiKey || "");
-		setEdStemKey(edStemApiKey || "");
-		setGroqKeyInput(groqApiKey || "");
+		if (open) {
+			setApiKey(togetherApiKey || "");
+			setEdStemKey(edStemApiKey || "");
+			setGroqKeyInput(groqApiKey || "");
+		}
 	}, [togetherApiKey, edStemApiKey, groqApiKey, open]);
 
 	const handleSave = () => {
@@ -180,6 +185,15 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 														Your EdStem API key will be stored locally in your
 														browser.
 													</p>
+													
+													<div className="flex items-center justify-between">
+														<EdStemSyncButton />
+														{lastSyncedAt && (
+															<p className="text-xs text-muted-foreground">
+																Last synced: {new Date(lastSyncedAt).toLocaleString()}
+															</p>
+														)}
+													</div>
 												</div>
 											</div>
 

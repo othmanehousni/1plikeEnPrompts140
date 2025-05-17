@@ -1,5 +1,5 @@
 {
-  "id": "3b09719e-c1a5-4411-8634-e9f635d0a15a",
+  "id": "a3eb8b64-046d-4d7b-809c-a98350fd3d88",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -32,11 +32,18 @@
           "primaryKey": false,
           "notNull": false
         },
-        "document": {
-          "name": "document",
+        "message": {
+          "name": "message",
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "images": {
+          "name": "images",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'[]'"
         },
         "is_resolved": {
           "name": "is_resolved",
@@ -56,7 +63,8 @@
           "name": "updated_at",
           "type": "timestamp",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "default": "now()"
         }
       },
       "indexes": {},
@@ -106,24 +114,24 @@
         },
         "code": {
           "name": "code",
-          "type": "varchar(20)",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
         "name": {
           "name": "name",
-          "type": "varchar(255)",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
         "year": {
           "name": "year",
-          "type": "varchar(10)",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "last_active": {
-          "name": "last_active",
+        "last_synced": {
+          "name": "last_synced",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false
@@ -155,31 +163,31 @@
         },
         "title": {
           "name": "title",
-          "type": "varchar(255)",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "document": {
-          "name": "document",
+        "message": {
+          "name": "message",
           "type": "text",
           "primaryKey": false,
           "notNull": false
         },
         "category": {
           "name": "category",
-          "type": "varchar(100)",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
         "subcategory": {
           "name": "subcategory",
-          "type": "varchar(100)",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
         "subsubcategory": {
           "name": "subsubcategory",
-          "type": "varchar(100)",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -215,7 +223,15 @@
           "name": "updated_at",
           "type": "timestamp",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "default": "now()"
+        },
+        "images": {
+          "name": "images",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'[]'"
         }
       },
       "indexes": {},

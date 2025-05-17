@@ -12,7 +12,6 @@
     "lint": "eslint . --ext .ts,.tsx"
   },
   "dependencies": {
-    "@ask-ed/shared": "workspace:*",
     "@plasmohq/messaging": "^0.6.2",
     "@plasmohq/storage": "^1.9.3",
     "plasmo": "0.90.3",

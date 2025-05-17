@@ -1,50 +1,24 @@
-import { eq } from "drizzle-orm";
-import db from "./database";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import * as schema from "./schema";
 
-// Helper functions for working with threads and messages
-export async function createThread(title = "New conversation") {
-	const [thread] = await db
-		.insert(schema.threads)
-		.values({ title })
-		.returning();
-	return thread;
+// Check if the DATABASE_URL is available
+if (!process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL environment variable is not set for runtime connection.");
 }
 
-export async function getThread(id: number) {
-	return await db.query.threads.findFirst({
-		where: (threads) => eq(threads.id, id),
-		with: {
-			messages: {
-				orderBy: (messages: typeof schema.messages.$inferSelect) => [
-					messages.createdAt,
-				],
-			},
-		},
-	});
-}
+// Create a PostgreSQL client connection
+// For Supabase, SSL is typically required.
+// Check your Supabase project's database settings for the exact connection string
+// and whether it uses PgBouncer (which might affect direct SSL options).
+const client = postgres(process.env.DATABASE_URL, {
+  ssl: 'require' // Common requirement for Supabase connections
+});
 
-export async function getAllThreads() {
-	return await db.query.threads.findMany({
-		orderBy: (threads) => [threads.updatedAt],
-	});
-}
+// Create Drizzle instance with the postgres-js driver
+export const db = drizzle(client, { schema });
 
-export async function addMessage(
-	threadId: number,
-	role: "user" | "assistant",
-	content: string,
-) {
-	const [message] = await db
-		.insert(schema.messages)
-		.values({ threadId, role, content })
-		.returning();
+// The schema object is already exported by drizzle, but if you need direct access to your schema definitions:
+export * from "./schema"; 
 
-	// Update the thread's updatedAt timestamp
-	await db
-		.update(schema.threads)
-		.set({ updatedAt: new Date() })
-		.where(eq(schema.threads.id, threadId));
-
-	return message;
-}
+export default db; // Exporting db as default can be useful for some setups 

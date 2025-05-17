@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { ToastContainer } from "@/components/ui/toast";
 import { useUserPreferences } from "@/lib/stores/user-preferences";
+import { useSyncStatus } from "@/lib/stores/sync-status";
 
 // Helper for STT
 let mediaRecorder: MediaRecorder | null = null;
@@ -26,7 +27,8 @@ let selectedAudioFormat = PREFERRED_AUDIO_FORMATS[PREFERRED_AUDIO_FORMATS.length
 export default function Home() {
 	const [toolCall, setToolCall] = useState<string>();
 	const { toasts, error: showError, dismiss } = useToast();
-	const { togetherApiKey, groqApiKey } = useUserPreferences();
+	const { togetherApiKey, groqApiKey, edStemApiKey } = useUserPreferences();
+	const { lastSyncedAt } = useSyncStatus();
 	const [mounted, setMounted] = useState<boolean>(false);
 	const [currentTime, setCurrentTime] = useState<number>(0);
 	
@@ -42,7 +44,26 @@ export default function Home() {
 	useEffect(() => {
 		setMounted(true);
 		setCurrentTime(Date.now());
-	}, []);
+		
+		// Fetch last sync date on mount if we have an API key
+		if (edStemApiKey) {
+			const fetchLastSyncDate = async () => {
+				try {
+					const response = await fetch('/api/edstem/last-sync');
+					if (response.ok) {
+						const data = await response.json();
+						if (data.lastSynced) {
+							useSyncStatus.getState().setLastSyncedAt(data.lastSynced);
+						}
+					}
+				} catch (error) {
+					console.error('Error fetching last sync date:', error);
+				}
+			};
+			
+			fetchLastSyncDate();
+		}
+	}, [edStemApiKey]);
 
 	useEffect(() => {
 		if (!mounted) return;
@@ -98,12 +119,19 @@ export default function Home() {
 	const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
 	useEffect(() => {
-		if (mounted && !togetherApiKey && !groqApiKey) {
-			showError(
-				"Please add an API key (e.g., TogetherAI or Groq) in settings to use the app.",
-			);
+		if (mounted) {
+			if (!togetherApiKey && !groqApiKey) {
+				showError(
+					"Please add an API key (e.g., TogetherAI or Groq) in settings to use the app.",
+				);
+			}
+			if (!edStemApiKey) {
+				showError(
+					"Please add your EdStem API key in settings to sync with your courses.",
+				);
+			}
 		}
-	}, [togetherApiKey, groqApiKey, showError, mounted]);
+	}, [togetherApiKey, groqApiKey, edStemApiKey, showError, mounted]);
 
 	useEffect(() => {
 		if (messages.length > 0) setIsExpanded(true);
@@ -271,13 +299,20 @@ export default function Home() {
 
 	const handleChatSubmit = (e?: FormEvent<HTMLFormElement>) => {
 		if (e) e.preventDefault();
+		
+		// Block submission if edStemApiKey is missing
+		if (!edStemApiKey) {
+			showError("Please add your EdStem API key in settings first.");
+			return;
+		}
+		
 		handleSubmit(e);
 	};
 
 	return (
 		<div className="flex h-screen w-screen items-center justify-center relative">
 			<div className="absolute top-4 left-4 font-mono text-sm text-neutral-500 dark:text-neutral-400">
-				Last Sync
+				Last Sync: {lastSyncedAt ? new Date(lastSyncedAt).toLocaleString() : 'Never'}
 			</div>
 
 			<div className="flex flex-col items-center w-full max-w-[500px]">
@@ -366,7 +401,7 @@ export default function Home() {
 				would require additional speech-to-text processing.
 			*/}
 			<audio ref={audioPlayerRef} style={{ display: "none" }}>
-				<track kind="captions" src="" label="English captions" />
+				<track kind="captions" label="English captions" />
 			</audio>
 			<ToastContainer toasts={toasts} onDismiss={dismiss} />
 		</div>
