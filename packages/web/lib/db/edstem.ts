@@ -1,6 +1,6 @@
 import { db } from './index';
 import { courses, threads, answers } from "./schema";
-import { eq, desc as drizzleDesc } from "drizzle-orm";
+import { eq, desc as drizzleDesc, count } from "drizzle-orm";
 import { z } from "zod";
 import { EDClient } from '@/lib/ed-client';
 import type { EDListedThread, EDListedAnswer, EDCourse, EDUserCourseEntry } from '@/types/schema/ed.schema'; // Import centralized types
@@ -75,7 +75,12 @@ export async function testEdStemConnection(apiKey: string): Promise<string | und
 }
 
 async function syncAnswersForThread(threadId: number, client: EDClient, togetherApiKey?: string): Promise<AnswerSyncStats> {
-	console.log(`Syncing answers for thread ${threadId}...`);
+	// Log uniquement pour thread spécial
+	const isSpecialThread = threadId === 182914;
+	if (isSpecialThread) {
+		console.log(`[EDSTEM.ts] 📝 Syncing answers for special thread #182914...`);
+	}
+	
 	let edAnswersFromAPI: EDListedAnswer[] = []; 
 	try {
 		const threadData = await client.fetchThread(threadId);
@@ -91,10 +96,15 @@ async function syncAnswersForThread(threadId: number, client: EDClient, together
 		}));
 
 		if (!edAnswersFromAPI || edAnswersFromAPI.length === 0) {
-			console.log(`[EDSTEM.ts] No answers found for thread ${threadId} from EdStem or answers array is empty.`);
+			if (isSpecialThread) {
+				console.log(`[EDSTEM.ts] ⚠️ No answers found for thread #182914`);
+			}
 			return { threadId, answersInserted: 0, answersUpdated: 0, answersErrored: 0 };
 		}
-		console.log(`[EDSTEM.ts] Received ${edAnswersFromAPI.length} answers for thread ${threadId} from EdStem.`);
+		
+		if (isSpecialThread) {
+			console.log(`[EDSTEM.ts] 📊 Found ${edAnswersFromAPI.length} answers for thread #182914`);
+		}
 
 		let answersInserted = 0;
 		let answersUpdated = 0;
@@ -118,12 +128,20 @@ async function syncAnswersForThread(threadId: number, client: EDClient, together
 					updatedAt: new Date(edAnswer.updated_at),
 				};
 
-        // Generate embedding if Together API key is available
+        // Generate embedding only for new answers or if answer content is updated
         let embedding = null;
-        if (togetherApiKey && edAnswer.message) {
+        const needsEmbedding = !existingAnswer || 
+          (existingAnswer.updatedAt && 
+           new Date(edAnswer.updated_at).getTime() > existingAnswer.updatedAt.getTime());
+        
+        if (togetherApiKey && edAnswer.message && needsEmbedding) {
+          // Log uniquement pour thread spécial
+          if (isSpecialThread) {
+            console.log(`[EDSTEM.ts] 🧠 Generating embedding for answer ${edAnswer.id} in thread #182914`);
+          }
+          
           const textForEmbedding = prepareAnswerTextForEmbedding(edAnswer.message as string);
           embedding = await generateEmbeddings(textForEmbedding, togetherApiKey);
-          console.log(`[EDSTEM.ts] Generated embedding for answer ${edAnswer.id}`);
         }
 
 				if (existingAnswer) {
@@ -153,7 +171,12 @@ async function syncAnswersForThread(threadId: number, client: EDClient, together
                 }
 			}
 		}
-		console.log(`[EDSTEM.ts] Finished syncing answers for thread ${threadId}. Inserted: ${answersInserted}, Updated: ${answersUpdated}, Errored: ${answersErrored}`);
+		
+		// Log uniquement pour thread spécial
+		if (isSpecialThread) {
+			console.log(`[EDSTEM.ts] ✅ Thread #182914 - Résumé des réponses: Insérées: ${answersInserted}, Mises à jour: ${answersUpdated}, Erreurs: ${answersErrored}`);
+		}
+		
 		return { threadId, answersInserted, answersUpdated, answersErrored };
 	} catch (error) {
 		console.error(`[EDSTEM.ts] Failed to fetch or process answers for thread ${threadId}:`, error);
@@ -171,6 +194,14 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, courseNa
 	let threadsErrored = 0;
 
 	try {
+		// Vérifier la connexion à la base de données en comptant les threads existants
+		try {
+			const existingThreadCount = await db.select({ count: count() }).from(threads).where(eq(threads.courseId, courseId));
+			console.log(`[EDSTEM.ts] 🔢 Nombre de threads existants dans la DB pour le cours ${courseId}: ${existingThreadCount[0]?.count || 0}`);
+		} catch (dbError) {
+			console.error(`[EDSTEM.ts] ❌ Erreur lors de la vérification des threads existants:`, dbError);
+		}
+		
 		// Fetch all pages of threads using pagination
 		while (hasMorePages) {
 			console.log(`[EDSTEM.ts] 📄 Downloading page ${currentPage} for course ${courseName || courseId}...`);
@@ -195,13 +226,33 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, courseNa
 		}
 		
 		console.log(`[EDSTEM.ts] 📊 Total of ${edThreadsFromAPI.length} threads found for course ${courseName || courseId}`);
-
 		// Process all threads
 		for (const edThread of edThreadsFromAPI) {
+			// Débogage spécifique pour le thread 182914
+			if (edThread.id === 182914) {
+				console.log(`[EDSTEM.ts] 🔎 THREAD SPÉCIAL DÉTECTÉ #182914 - "${edThread.title}"`);
+				console.log(`[EDSTEM.ts] 📝 Détails du thread 182914:`, {
+					id: edThread.id,
+					title: edThread.title,
+					created_at: edThread.created_at,
+					updated_at: edThread.updated_at,
+					category: edThread.category,
+					has_content: !!edThread.content,
+					has_document: !!edThread.document,
+					course_id: edThread.course_id
+				});
+			}
+			
 			try {
+				// Vérifier si le thread existe déjà dans la base de données
 				const existingThread = await db.query.threads.findFirst({
 					where: eq(threads.id, edThread.id),
 				});
+				
+				// Debug uniquement pour le thread spécial ou si verbose logging est activé
+				if (edThread.id === 182914) {
+					console.log(`[EDSTEM.ts] 🔍 Thread #182914 - État dans DB: ${existingThread ? 'présent' : 'absent'}`);
+				}
 
         // Prepare thread data
 				const threadData = {
@@ -219,9 +270,16 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, courseNa
 					images: client.extractImageUrls(edThread.content as string),
 				};
 
-        // Generate embedding if Together API key is available
+        // Generate embedding ONLY for NEW threads, pas pour les mises à jour
         let embedding = null;
-        if (togetherApiKey) {
+        const isNewThread = !existingThread;
+        
+        if (togetherApiKey && isNewThread) {
+          // Log uniquement pour thread spécial
+          if (edThread.id === 182914) {
+            console.log(`[EDSTEM.ts] 🧠 Generating embedding for NEW thread #182914`);
+          }
+          
           const textForEmbedding = prepareThreadTextForEmbedding(
             edThread.title,
             typeof edThread.document === 'string' ? edThread.document : null,
@@ -229,10 +287,23 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, courseNa
             edThread.subcategory
           );
           embedding = await generateEmbeddings(textForEmbedding, togetherApiKey);
-          console.log(`[EDSTEM.ts] Generated embedding for thread ${edThread.id}`);
+          
+          // Log uniquement pour thread spécial
+          if (edThread.id === 182914) {
+            console.log(`[EDSTEM.ts] ✅ Generated embedding for thread #182914`);
+          }
         }
 
+				// Débogage spécifique pour thread 182914
+				if (edThread.id === 182914) {
+					console.log(`[EDSTEM.ts] 🧪 Thread #182914 - Étape de mise à jour DB - existingThread:`, existingThread ? 'trouvé' : 'non trouvé');
+				}
+				
 				if (existingThread) {
+					// Ne vérifier les réponses que si le thread a été mis à jour
+					let needSyncAnswers = false;
+					
+					// Mise à jour du thread uniquement s'il y a des modifications
 					if (existingThread.updatedAt && new Date(edThread.updated_at).getTime() > existingThread.updatedAt.getTime()) {
 						await db.update(threads)
 							.set({ 
@@ -242,15 +313,35 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, courseNa
               })
 							.where(eq(threads.id, edThread.id));
 						threadsUpdated++;
+						
+						// Comme le thread a été mis à jour, on doit aussi vérifier les réponses
+						needSyncAnswers = true;
+					
+					} 
+					
+					// Ne synchroniser les réponses que si le thread a été mis à jour
+					if (needSyncAnswers) {
 						await syncAnswersForThread(edThread.id, client, togetherApiKey);
 					}
 				} else {
-					await db.insert(threads).values({ 
-            id: edThread.id, 
-            ...threadData,
-            ...(embedding ? { embedding } : {})
-          });
-					threadsInserted++;
+					try {
+						await db.insert(threads).values({ 
+							id: edThread.id, 
+							...threadData,
+							...(embedding ? { embedding } : {})
+						});
+
+						threadsInserted++;
+
+					} catch (insertError) {
+						console.error(`[EDSTEM.ts] ❌ ERREUR D'INSERTION pour thread ${edThread.id}:`, insertError);
+						if (edThread.id === 182914) {
+							console.error(`[EDSTEM.ts] 🚨 ÉCHEC CRITIQUE pour thread #182914 - Erreur d'insertion:`, insertError);
+						}
+						throw insertError; // Propager l'erreur pour qu'elle soit capturée par le bloc catch externe
+					}
+					
+					// Synchroniser les réponses pour ce nouveau thread
 					await syncAnswersForThread(edThread.id, client, togetherApiKey);
 				}
 			} catch (error) {
@@ -262,7 +353,8 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, courseNa
 			}
 		}
 
-		console.log(`[EDSTEM.ts] ✅ Threads sync completed for course ${courseName || courseId}. Inserted: ${threadsInserted}, Updated: ${threadsUpdated}, Errors: ${threadsErrored}`);
+		// Log résumé global (toujours affiché car important)
+		console.log(`[EDSTEM.ts] ✅ Résumé de la synchronisation pour "${courseName || courseId}": ${threadsInserted} threads insérés, ${threadsUpdated} mis à jour, ${threadsErrored} erreurs`);
 		return { courseId, threadsInserted, threadsUpdated, threadsErrored };
 	} catch (error) {
 		console.error(`[EDSTEM.ts] ❌ Failed to sync threads for course ${courseName || courseId}:`, error);

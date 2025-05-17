@@ -11,9 +11,38 @@ export async function generateEmbeddings(text: string, apiKey: string): Promise<
   if (!text || !apiKey) return null;
   
   try {
-    // Clean and prepare the text
-    const cleanText = text.trim();
+    // Clean and prepare the text - extensive cleaning to prevent API errors
+    let cleanText = text.trim();
     if (!cleanText) return null;
+    
+    // Limiter la taille du texte (Together AI a généralement une limite de tokens)
+    if (cleanText.length > 8192) {
+      console.log(`[EMBEDDINGS] ✂️ Text truncated from ${cleanText.length} to 8192 characters`);
+      cleanText = cleanText.substring(0, 8192);
+    }
+    
+    // Nettoyer le texte de caractères problématiques
+    cleanText = cleanText
+      // Enlever les caractères de contrôle et non-imprimables
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+      // Remplacer les séquences de sauts de ligne multiples par un seul
+      .replace(/\n{3,}/g, '\n\n')
+      // Normaliser les espaces multiples
+      .replace(/\s{2,}/g, ' ')
+      // Enlever tout caractère qui pourrait causer des erreurs d'encodage
+      .replace(/[^\p{L}\p{N}\p{P}\p{Z}\p{S}]/gu, '');
+    
+    // Vérifier si le texte n'est pas vide après nettoyage
+    if (!cleanText.trim()) {
+      console.warn('[EMBEDDINGS] ⚠️ Text became empty after cleaning');
+      return null;
+    }
+    
+    // Vérifier si le texte est trop court (moins de 3 mots)
+    if (cleanText.split(/\s+/).length < 3) {
+      console.warn('[EMBEDDINGS] ⚠️ Text too short for meaningful embedding');
+      return null;
+    }
 
     // Create the Together AI provider with the API key
     const togetherAI = createTogetherAI({
@@ -29,9 +58,26 @@ export async function generateEmbeddings(text: string, apiKey: string): Promise<
     });
     
     // Return the first embedding from the result
-    return result.embeddings[0];
+    if (result?.embeddings?.[0]) {
+      return result.embeddings[0];
+    } else {
+      console.warn('[EMBEDDINGS] ⚠️ Empty embedding result returned');
+      return null;
+    }
   } catch (error) {
     console.error('Error generating embeddings:', error);
+    // Log des détails spécifiques pour les erreurs API
+    if (error && typeof error === 'object' && 'responseBody' in error) {
+      try {
+        console.error('[EMBEDDINGS] 🔍 API error details:', 
+          typeof error.responseBody === 'string' 
+            ? JSON.parse(error.responseBody) 
+            : error.responseBody
+        );
+      } catch (parseError) {
+        console.error('[EMBEDDINGS] 🔍 Raw API error:', error.responseBody);
+      }
+    }
     return null;
   }
 }

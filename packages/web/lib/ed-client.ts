@@ -103,8 +103,8 @@ export class EDClient {
     public async getThreadsForCourse(courseId: number, options: { page?: number, limit?: number } = {}): Promise<EDListedThread[]> {
         console.log(`[ED-CLIENT.ts] Fetching threads for course ${courseId}...`);
         
-        const limit = options.limit || 50;
-        let page = options.page || 1;
+        const limit = options.limit || 30;
+        let page = options.page || 0;
         let hasMorePages = true;
         let allThreads: EDListedThread[] = [];
         
@@ -141,7 +141,7 @@ export class EDClient {
                 }
             }
             
-            console.log(`[ED-CLIENT.ts] Successfully fetched ${allThreads.length} threads for course ${courseId}`);
+            //console.log(`[ED-CLIENT.ts] Successfully fetched ${allThreads.length} threads for course ${courseId}`);
             return allThreads;
             
         } catch (error) {
@@ -161,7 +161,7 @@ export class EDClient {
     }
 
     public async fetchThread(threadId: number): Promise<EDThread> {
-        console.log(`[ED-CLIENT.ts] Fetching thread ${threadId}...`);
+        //console.log(`[ED-CLIENT.ts] Fetching thread ${threadId}...`);
         
         try {
             const response = await this.fetchWithRetry(`${this.baseUrl}threads/${threadId}`);
@@ -171,7 +171,7 @@ export class EDClient {
                 const parsedResponse = EDThreadResponseSchema.parse(rawData);
                 const threadResponse: EDThread = parsedResponse.thread;
                 
-                console.log(`[ED-CLIENT.ts] Successfully fetched thread ${threadResponse.id} with ${threadResponse.answers.length} answers and ${threadResponse.comments.length} comments.`);
+                //console.log(`[ED-CLIENT.ts] Successfully fetched thread ${threadResponse.id} with ${threadResponse.answers.length} answers and ${threadResponse.comments.length} comments.`);
                 
                 return threadResponse;
                 

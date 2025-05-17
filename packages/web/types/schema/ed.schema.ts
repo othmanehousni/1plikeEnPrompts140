@@ -1,12 +1,13 @@
 import { z } from "zod";
 
 // Schéma de base pour les propriétés communes à tous les types de posts ED
+// Rendu plus flexible pour éviter les erreurs de validation
 const EDBasePostSchema = z.object({
 	id: z.number(),
 	user_id: z.number(),
 	course_id: z.number(),
-	content: z.string(),
-	document: z.string(),
+	content: z.string().or(z.null()),
+	document: z.string().or(z.null()),
 	flag_count: z.number(),
 	vote_count: z.number(),
 	is_endorsed: z.boolean(),
@@ -17,7 +18,7 @@ const EDBasePostSchema = z.object({
 	deleted_at: z.string().nullable(),
 	anonymous_id: z.number(),
 	vote: z.number(),
-});
+}).passthrough(); // Permet d'autres propriétés non spécifiées
 
 // Type de base pour les posts
 export type EDBasePost = z.infer<typeof EDBasePostSchema>;
@@ -58,49 +59,56 @@ export const EDUserApiResponseSchema = z.object({
 export type EDUserApiResponse = z.infer<typeof EDUserApiResponseSchema>;
 
 // Définition du schéma pour les commentaires (de manière récursive)
+// On rend la validation plus souple pour les types imbriqués
 export const EDCommentSchema = z.lazy(() =>
 	EDBasePostSchema.extend({
 		thread_id: z.number(),
 		parent_id: z.number().nullable(),
 		editor_id: z.number().nullable(),
 		number: z.number(),
-		type: z.literal("comment"),
+		// Rendre le type plus flexible pour les commentaires imbriqués
+		type: z.string().default("comment"),
 		kind: z.string(),
 		is_resolved: z.boolean(),
-		comments: z.array(z.lazy(() => EDCommentSchema)).default([]),
+		// Rendre ce schéma plus souple en permettant des types variés dans les commentaires imbriqués
+		comments: z.array(z.any()).default([]),
 	}),
 ) as z.ZodType<EDBasePost & {
 	thread_id: number;
 	parent_id: number | null;
 	editor_id: number | null;
 	number: number;
-	type: "comment";
+	type: string; // Plus générique 
 	kind: string;
 	is_resolved: boolean;
-	comments: Array<any>; // Circular reference handled by the 'as' assertion
+	comments: Array<any>; // Peut contenir n'importe quel type
 }>;
 
 // Type pour les commentaires
 export type EDComment = z.infer<typeof EDCommentSchema>;
 
 // Schéma pour les réponses (answers) - DETAILED version from existing ed.schema.ts
+// Rendu plus flexible pour la validation
 export const EDAnswerSchema = EDBasePostSchema.extend({
 	thread_id: z.number(),
 	original_id: z.number().nullable(),
 	parent_id: z.number().nullable(), // This is important for hierarchy
 	editor_id: z.number().nullable(),
 	number: z.number(),
-	type: z.literal("answer"),
+	// Rendre le type plus flexible
+	type: z.string().default("answer"),
 	kind: z.string(),
 	is_resolved: z.boolean(),
-	comments: z.array(EDCommentSchema).default([]),
+	// Utiliser any[] pour plus de flexibilité dans la structure de commentaires
+	comments: z.array(z.any()).default([]),
 	// content / document are from EDBasePostSchema
-});
+}).passthrough(); // Accepter des propriétés supplémentaires
 
 // Type pour les réponses
 export type EDAnswer = z.infer<typeof EDAnswerSchema>;
 
 // Schéma pour les threads - DETAILED version from existing ed.schema.ts
+// Rendu plus souple pour accepter des structures variables de l'API
 export const EDThreadSchema = EDBasePostSchema.extend({
 	original_id: z.number().nullable(),
 	editor_id: z.number().nullable(),
@@ -109,9 +117,9 @@ export const EDThreadSchema = EDBasePostSchema.extend({
 	number: z.number(),
 	type: z.string(),
 	title: z.string(),
-	category: z.string(),
-	subcategory: z.string(),
-	subsubcategory: z.string(),
+	category: z.string().nullable().optional(),
+	subcategory: z.string().nullable().optional(),
+	subsubcategory: z.string().nullable().optional(),
 	star_count: z.number(),
 	view_count: z.number(),
 	unique_view_count: z.number(),
@@ -133,9 +141,10 @@ export const EDThreadSchema = EDBasePostSchema.extend({
 	glanced_at: z.string().nullable(),
 	new_reply_count: z.number(),
 	duplicate_title: z.string().nullable(),
-	answers: z.array(EDAnswerSchema).default([]),
-	comments: z.array(EDCommentSchema).default([]),
-});
+	// Rendre les arrays plus flexibles pour accepter différentes structures
+	answers: z.array(z.any()).default([]),
+	comments: z.array(z.any()).default([]),
+}).passthrough(); // Accepter des propriétés supplémentaires
 
 // Type pour les threads
 export type EDThread = z.infer<typeof EDThreadSchema>;
@@ -154,10 +163,11 @@ export const EDUserSchema = z.object({
 export type EDUser = z.infer<typeof EDUserSchema>;
 
 // Schéma pour la réponse complète de l'API pour UN thread (includes users, detailed thread, answers, comments)
+// On utilise passthrough() pour être plus tolérant face aux propriétés supplémentaires
 export const EDThreadResponseSchema = z.object({
 	thread: EDThreadSchema, // This is the detailed EDThreadSchema
 	users: z.array(EDUserSchema).default([]),
-});
+}).passthrough();
 
 // Type pour la réponse de l'API
 export type EDThreadResponse = z.infer<typeof EDThreadResponseSchema>;
