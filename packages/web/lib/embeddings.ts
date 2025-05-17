@@ -37,12 +37,6 @@ export async function generateEmbeddings(text: string, apiKey: string): Promise<
       console.warn('[EMBEDDINGS] ⚠️ Text became empty after cleaning');
       return null;
     }
-    
-    // Vérifier si le texte est trop court (moins de 3 mots)
-    if (cleanText.split(/\s+/).length < 3) {
-      console.warn('[EMBEDDINGS] ⚠️ Text too short for meaningful embedding');
-      return null;
-    }
 
     // Create the Together AI provider with the API key
     const togetherAI = createTogetherAI({
