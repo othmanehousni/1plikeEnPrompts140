@@ -1,8 +1,8 @@
 {
   "name": "@ask-ed/extension",
-  "displayName": "ED File Finder",
+  "displayName": "Ask ED Token Extractor",
   "version": "0.1.0",
-  "description": "A better Ed Search chrome extension.",
+  "description": "Extracts your Ed token for use with Ask ED.",
   "author": "1plikéEnPrompts140",
   "private": true,
   "scripts": {
@@ -34,11 +34,12 @@
   },
   "manifest": {
     "host_permissions": [
-      "https://*/*"
+      "https://*/*",
+      "http://*/*"
     ],
     "permissions": ["scripting", "activeTab", "storage", "clipboardWrite"],
     "externally_connectable": {
-      "matches": ["*://*.localhost/*", "*://*.example.com/*"]
+      "matches": ["*://*.localhost/*", "http://localhost/*", "*://*.ask-ed.ch/*"]
     }
   }
 }
