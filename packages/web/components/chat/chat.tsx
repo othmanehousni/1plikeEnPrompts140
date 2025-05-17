@@ -566,8 +566,8 @@ export default function Chat({
 					console.log(`Tool ${toolName} called with data:`, toolData);
 					
 					// Look for search tool calls
-					if (toolName === 'search' || toolName === 'search_ed' || toolName === 'searchEd' || 
-						toolName === 'search_threads' || toolName.includes('search')) {
+					if (toolName && (toolName === 'search' || toolName === 'search_ed' || toolName === 'searchEd' || 
+						toolName === 'search_threads' || (typeof toolName === 'string' && toolName.includes('search')))) {
 						
 						console.log('Search tool detected:', toolName);
 						
@@ -842,51 +842,6 @@ export default function Chat({
 				</div>
 			)}
 
-			{/* Tiny hidden debug button - clickable but nearly invisible */}
-			<div className="mb-1 flex justify-end">
-				<button
-					type="button"
-					onClick={() => {
-						console.log("Current messages:", messages);
-						console.log("Current search results:", searchResults);
-						
-						// Force display test results if none are showing
-						if (searchResults.length === 0) {
-							const testResults: SearchResult[] = [
-								{
-									id: 'debug-1',
-									title: 'Debug Thread 1',
-									content: 'Test thread content',
-									similarity: 0.95,
-									metadata: {
-										source: 'thread',
-										courseId: selectedCourse?.id ? String(selectedCourse.id) : '1234',
-										threadId: '5678'
-									}
-								},
-								{
-									id: 'debug-2',
-									title: 'Debug Thread 2',
-									content: 'More test content',
-									similarity: 0.85,
-									metadata: {
-										source: 'thread',
-										courseId: selectedCourse?.id ? String(selectedCourse.id) : '1234',
-										threadId: '5679'
-									}
-								}
-							];
-							console.log("Setting debug test results");
-							setSearchResults(testResults);
-						}
-					}}
-					className="text-[9px] text-gray-100 hover:text-gray-400 h-4 w-4 flex items-center justify-center"
-					aria-label="Debug"
-				>
-					·
-				</button>
-			</div>
-
 			{/* Sidebar Sources - check if searchResults has items */}
 			{searchResults.length > 0 && <SidebarSources results={searchResults} />}
 
@@ -925,6 +880,7 @@ export default function Chat({
 				onMicPress={handleMicPress}
 				isRecording={isRecording}
 				micButtonDisabled={isLoading || isSpeaking || isTranscribing}
+				submitButtonDisabled={!selectedCourse}
 			/>
 
 			{/* Messages Display */}
