@@ -1,5 +1,6 @@
 import { relations } from 'drizzle-orm';
 import { boolean, integer, pgTable, primaryKey, text, timestamp, varchar } from 'drizzle-orm/pg-core';
+import { PgArray as array } from 'drizzle-orm/pg-core';
 
 // Courses table
 export const courses = pgTable('courses', {
@@ -16,7 +17,7 @@ export const threads = pgTable('threads', {
   id: integer('id').primaryKey(),
   courseId: integer('course_id').notNull().references(() => courses.id),
   title: varchar('title', { length: 255 }).notNull(),
-  document: text('document'),
+  message: text('message'),
   category: varchar('category', { length: 100 }),
   subcategory: varchar('subcategory', { length: 100 }),
   subsubcategory: varchar('subsubcategory', { length: 100 }),
@@ -25,6 +26,7 @@ export const threads = pgTable('threads', {
   isStudentAnswered: boolean('is_student_answered').default(false),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at'),
+  images: text('images').array().default([]),
 });
 
 // Answers/replies to threads
@@ -33,7 +35,8 @@ export const answers = pgTable('answers', {
   threadId: integer('thread_id').notNull().references(() => threads.id),
   courseId: integer('course_id').notNull().references(() => courses.id),
   parentId: integer('parent_id'),
-  document: text('document'),
+  message: text('message'),
+  images: text('images').array().default([]),
   isResolved: boolean('is_resolved').default(false),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at'),

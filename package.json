@@ -24,6 +24,7 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "postcss": "^8.5.3"
+    "postcss": "^8.5.3",
+    "zod": "^3.24.4"
   }
 }
