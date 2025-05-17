@@ -1,35 +1,67 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, type FormEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useChat } from "@ai-sdk/react";
 import type { Message } from "ai";
-import { Input } from "@/components/ui/input";
+import { PromptInputWithActions } from "@/components/chat/input";
 import { SettingsButton } from "@/components/layout/settings/settings-button";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { ToastContainer } from "@/components/ui/toast";
 import { useUserPreferences } from "@/lib/stores/user-preferences";
 
+// Helper for STT
+let mediaRecorder: MediaRecorder | null = null;
+let audioChunks: Blob[] = [];
+// Preferred MIME types for recording, in order of preference
+const PREFERRED_AUDIO_FORMATS = [
+	'audio/webm', // Webm is widely supported
+	'audio/mp4',  // Safari often supports this
+	'audio/wav',  // Raw PCM data
+	'audio/ogg',  // Firefox often supports this
+];
+let selectedAudioFormat = PREFERRED_AUDIO_FORMATS[PREFERRED_AUDIO_FORMATS.length -1]; // Default to last one
+
 export default function Home() {
 	const [toolCall, setToolCall] = useState<string>();
 	const { toasts, error: showError, dismiss } = useToast();
-	const { togetherApiKey } = useUserPreferences();
+	const { togetherApiKey, groqApiKey } = useUserPreferences();
+	const [mounted, setMounted] = useState<boolean>(false);
+	const [currentTime, setCurrentTime] = useState<number>(0);
+	
+	// TTS State
+	const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
+	const [isAutoTTSActive, setIsAutoTTSActive] = useState<boolean>(false);
+	const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
-	const { messages, input, handleInputChange, handleSubmit, isLoading } =
+	// STT State
+	const [isRecording, setIsRecording] = useState<boolean>(false);
+	const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
+
+	useEffect(() => {
+		setMounted(true);
+		setCurrentTime(Date.now());
+	}, []);
+
+	useEffect(() => {
+		if (!mounted) return;
+		const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
+		return () => clearInterval(timer);
+	}, [mounted]);
+
+	const { messages, input, setInput, handleSubmit, isLoading, error, append } =
 		useChat({
 			headers: {
 				"x-together-api-key": togetherApiKey || "",
+				"x-groq-api-key": groqApiKey || "",
 			},
 			onToolCall({ toolCall }) {
 				setToolCall(toolCall.toolName);
 			},
 			onError: (err) => {
 				console.error("Chat error:", err);
-
-				// Parse error message if it's from our API
 				try {
-					// If it's a JSON response from our API
 					if (typeof err === "object" && err.message) {
 						const errorData = JSON.parse(err.message);
 						if (errorData.error) {
@@ -38,37 +70,44 @@ export default function Home() {
 						}
 					}
 				} catch (e) {
-					// Not a JSON error, continue to default message
+					// Not a JSON error
 				}
-
-				// Default error message
-				if (err.message?.includes('rate limit')) {
+				if (err.message?.includes("rate limit")) {
 					showError("You've been rate limited, please try again later!");
-				} else if (err.message?.includes('api key')) {
-					showError("Missing API key. Please add your TogetherAI API key in settings.");
-				} else if (err.message?.toLowerCase().includes('failed to fetch')) {
-					showError("Network error: Failed to connect. Please check your connection and try again.");
+				} else if (err.message?.includes("api key")) {
+					showError(
+						"Missing API key. Please add your TogetherAI API key in settings.",
+					);
+				} else if (err.message?.toLowerCase().includes("failed to fetch")) {
+					showError(
+						"Network error: Failed to connect. Please check your connection and try again.",
+					);
 				} else if (err.message) {
 					showError(err.message);
 				} else {
 					showError("An unknown error occurred. Please try again later!");
 				}
 			},
+			onFinish: (message) => {
+				if (message.role === 'assistant' && isAutoTTSActive && message.content) {
+					handleSpeakMessage(message.content);
+				}
+			}
 		});
 
 	const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
-	// Show a warning if no API key is set
 	useEffect(() => {
-		if (!togetherApiKey) {
+		if (mounted && !togetherApiKey && !groqApiKey) {
 			showError(
-				"Please add your TogetherAI API key in settings to use the chat.",
+				"Please add an API key (e.g., TogetherAI or Groq) in settings to use the app.",
 			);
 		}
-	}, [togetherApiKey, showError]);
+	}, [togetherApiKey, groqApiKey, showError, mounted]);
 
 	useEffect(() => {
 		if (messages.length > 0) setIsExpanded(true);
+		else setIsExpanded(false);
 	}, [messages]);
 
 	const currentToolCall = useMemo(() => {
@@ -93,11 +132,154 @@ export default function Home() {
 	const userQuery = messages.filter((m) => m.role === "user").slice(-1)[0];
 
 	const lastAssistantMessage = messages
-		.filter((m) => m.role !== "user")
+		.filter((m) => m.role === "assistant")
 		.slice(-1)[0];
 
+	const handleSpeakMessage = async (textToSpeak: string) => {
+		if (!textToSpeak || isSpeaking) return;
+		setIsSpeaking(true);
+		try {
+			const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+			if (groqApiKey) headers['x-groq-api-key'] = groqApiKey;
+
+			const response = await fetch('/api/speech', {
+				method: 'POST',
+				headers,
+				body: JSON.stringify({ text: textToSpeak }),
+			});
+			if (!response.ok) {
+				let errorMsg = "Failed to generate speech.";
+				try { const errorData = await response.json(); errorMsg = errorData.error || errorMsg; } 
+				catch (e) { errorMsg = `Speech API error: ${response.status}`; }
+				showError(errorMsg);
+				setIsSpeaking(false); return;
+			}
+			const audioBlob = await response.blob();
+			const audioUrl = URL.createObjectURL(audioBlob);
+			if (audioPlayerRef.current) {
+				audioPlayerRef.current.src = audioUrl;
+				audioPlayerRef.current.play().catch(err => {
+					showError("Could not play audio."); setIsSpeaking(false); URL.revokeObjectURL(audioUrl);
+				});
+				audioPlayerRef.current.onended = () => { setIsSpeaking(false); URL.revokeObjectURL(audioUrl); };
+				audioPlayerRef.current.onerror = () => { showError("Audio player error."); setIsSpeaking(false); URL.revokeObjectURL(audioUrl); };
+			} else { setIsSpeaking(false); }
+		} catch (err) {
+			showError("Error in speech handling."); console.error("TTS error:", err); setIsSpeaking(false);
+		}
+	};
+
+	const handleMicPress = async () => {
+		if (isRecording) {
+			mediaRecorder?.stop();
+			setIsRecording(false);
+		} else {
+			if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+				showError("Audio recording is not supported by your browser."); return;
+			}
+
+			for (const format of PREFERRED_AUDIO_FORMATS) {
+				if (MediaRecorder.isTypeSupported(format)) {
+					selectedAudioFormat = format;
+					console.log("[STT] Using audio format:", selectedAudioFormat);
+					break;
+				}
+			}
+
+			try {
+				const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+				setIsRecording(true);
+				audioChunks = [];
+				mediaRecorder = new MediaRecorder(stream, { mimeType: selectedAudioFormat });
+				mediaRecorder.ondataavailable = event => { audioChunks.push(event.data); };
+				mediaRecorder.onstop = async () => {
+					for (const track of stream.getTracks()) {
+						track.stop();
+					}
+					const audioBlob = new Blob(audioChunks, { type: selectedAudioFormat });
+					
+					if (audioBlob.size === 0) { 
+						showError("No audio recorded. Please try again."); 
+						setIsTranscribing(false);
+						return; 
+					}
+					console.log(`[STT] Recorded audio blob size: ${audioBlob.size}, type: ${audioBlob.type}`);
+
+					setIsTranscribing(true);
+					try {
+						const headers: Record<string, string> = {};
+						if (groqApiKey) headers['x-groq-api-key'] = groqApiKey;
+
+						const response = await fetch('/api/transcribe', {
+							method: 'POST',
+							headers, 
+							body: audioBlob,
+						});
+						if (!response.ok) {
+							let errorMsg = "Failed to transcribe audio.";
+							try { 
+								const errorData = await response.json(); 
+								errorMsg = errorData.error || `Transcription API Error: ${response.status}`;
+								if (errorData.message) errorMsg += ` - ${errorData.message}`;
+							} catch (e) { 
+								errorMsg = `Transcription API Error: ${response.status} - ${await response.text()}`;
+							}
+							showError(errorMsg);
+						} else {
+							const result = await response.json();
+							if (result.transcription) {
+								setInput(prevInput => prevInput + (prevInput ? " " : "") + result.transcription);
+							} else if (result.error) {
+								showError(result.error);
+							}
+						}
+					} catch (transcribeError) {
+						showError("Error during transcription. Check console.");
+						console.error("STT fetch error:", transcribeError);
+					} finally {
+						setIsTranscribing(false);
+					}
+				};
+				mediaRecorder.start();
+			} catch (err) {
+				showError("Could not start recording. Check mic permissions or browser support for selected audio format.");
+				console.error("Mic access/MediaRecorder error:", err);
+				setIsRecording(false);
+			}
+		}
+	};
+
+	const formattedTime = useMemo(() => {
+		if (!mounted) return "";
+		const date = new Date(currentTime);
+		const hours = date.getHours().toString().padStart(2, "0");
+		const minutes = date.getMinutes().toString().padStart(2, "0");
+		const seconds = date.getSeconds().toString().padStart(2, "0");
+		return `${hours}:${minutes}:${seconds}`;
+	}, [currentTime, mounted]);
+
+	const formattedDate = useMemo(() => {
+		if (!mounted) return "";
+		const date = new Date(currentTime);
+		const options: Intl.DateTimeFormatOptions = {
+			month: "short",
+			day: "numeric",
+			year: "numeric",
+		};
+		return date.toLocaleDateString("en-US", options);
+	}, [currentTime, mounted]);
+
+	const handleChatSubmit = (e?: FormEvent<HTMLFormElement>) => {
+		if (e) e.preventDefault();
+		handleSubmit(e);
+	};
+
 	return (
-		<div className="flex h-screen w-screen items-center justify-center">
+		<div className="flex h-screen w-screen items-center justify-center relative">
+			<div className="absolute top-4 left-4 font-mono text-sm text-neutral-500 dark:text-neutral-400">
+				Last Sync
+			</div>
+
 			<div className="flex flex-col items-center w-full max-w-[500px]">
 				<motion.div
 					animate={{
@@ -116,17 +298,20 @@ export default function Home() {
 					)}
 				>
 					<div className="flex flex-col w-full justify-between gap-2">
-						<form onSubmit={handleSubmit} className="flex space-x-2">
-							<Input
-								className="bg-neutral-100 text-base w-full text-neutral-700 dark:bg-neutral-700 dark:placeholder:text-neutral-400 dark:text-neutral-300"
-								minLength={3}
-								required
-								value={input}
-								placeholder="Ask me anything..."
-								onChange={handleInputChange}
-								disabled={!togetherApiKey}
-							/>
-						</form>
+						<PromptInputWithActions 
+							value={input}
+							onValueChange={setInput}
+							onSubmit={handleChatSubmit}
+							isLoading={isLoading || isTranscribing}
+							onSpeakPress={() => lastAssistantMessage?.content && handleSpeakMessage(lastAssistantMessage.content)}
+							isSpeaking={isSpeaking}
+							speakButtonDisabled={!lastAssistantMessage?.content || isLoading || isSpeaking || isRecording}
+							isAutoTTSActive={isAutoTTSActive}
+							onToggleAutoTTS={() => setIsAutoTTSActive(prev => !prev)}
+							onMicPress={handleMicPress}
+							isRecording={isRecording}
+							micButtonDisabled={isLoading || isSpeaking || isTranscribing}
+						/>
 						<motion.div
 							transition={{
 								type: "spring",
@@ -134,14 +319,14 @@ export default function Home() {
 							className="min-h-fit flex flex-col gap-2"
 						>
 							<AnimatePresence>
-								{awaitingResponse || currentToolCall ? (
+								{awaitingResponse || currentToolCall || isTranscribing ? (
 									<div className="px-2 min-h-12">
-										{userQuery && (
+										{userQuery && !isTranscribing && (
 											<div className="dark:text-neutral-400 text-neutral-500 text-sm w-fit mb-1">
 												{userQuery.content}
 											</div>
 										)}
-										<Loading tool={currentToolCall} />
+										<Loading tool={isTranscribing ? 'Transcribing...' : currentToolCall} />
 									</div>
 								) : lastAssistantMessage ? (
 									<div className="px-2 min-h-12">
@@ -159,6 +344,30 @@ export default function Home() {
 				</motion.div>
 				<SettingsButton />
 			</div>
+
+			{mounted && (
+				<div className="absolute bottom-4 left-4 font-mono text-xs text-neutral-500 dark:text-neutral-400">
+					<div className="font-bold mb-1">Ask Ed</div>
+					<div className="flex items-center gap-2">
+						<span>Lauzhack 2025</span>
+						<span className="opacity-60">•</span>
+						<div className="flex items-center gap-1">
+							<span>{formattedDate}</span>
+							<span className="text-xs opacity-60">@</span>
+							<span className="font-medium">{formattedTime}</span>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{/* The audio element for playing speech. Hidden but accessible.
+				Note: We're adding a track element for accessibility compliance,
+				though for dynamically generated audio content, real-time captions
+				would require additional speech-to-text processing.
+			*/}
+			<audio ref={audioPlayerRef} style={{ display: "none" }}>
+				<track kind="captions" src="" label="English captions" />
+			</audio>
 			<ToastContainer toasts={toasts} onDismiss={dismiss} />
 		</div>
 	);
@@ -187,11 +396,12 @@ const Loading = ({ tool }: { tool?: string }) => {
 		getInformation: "Getting information",
 		addResource: "Adding information",
 		understandQuery: "Understanding query",
-		// Add other tool names and their display versions here
+		Transcribing: "Transcribing...",
 	};
-	const defaultToolName = "Thinking";
+	const defaultToolName = tool === 'Transcribing...' ? '' : "Thinking";
 
-	const displayName = tool && toolDisplayNames[tool] ? toolDisplayNames[tool] : defaultToolName;
+	const displayName =
+		tool && toolDisplayNames[tool] ? toolDisplayNames[tool] : (tool || defaultToolName);
 
 	return (
 		<AnimatePresence mode="wait">
@@ -207,7 +417,7 @@ const Loading = ({ tool }: { tool?: string }) => {
 						<LoadingSpinner />
 					</div>
 					<div className="text-neutral-500 dark:text-neutral-400 text-sm">
-						{displayName}...
+						{displayName}{displayName ? "..." : ""}
 					</div>
 				</div>
 			</motion.div>

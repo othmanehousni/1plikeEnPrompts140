@@ -11,6 +11,11 @@ type UserPreferences = {
   setEdStemApiKey: (apiKey: string) => void
   clearEdStemApiKey: () => void
   hasEdStemApiKey: () => boolean
+
+  groqApiKey: string | null
+  setGroqApiKey: (apiKey: string) => void
+  clearGroqApiKey: () => void
+  hasGroqApiKey: () => boolean
 }
 
 export const useUserPreferences = create<UserPreferences>()(
@@ -42,6 +47,20 @@ export const useUserPreferences = create<UserPreferences>()(
       
       hasEdStemApiKey: () => {
         return !!get().edStemApiKey
+      },
+
+      groqApiKey: null,
+      
+      setGroqApiKey: (apiKey: string) => {
+        set({ groqApiKey: apiKey })
+      },
+      
+      clearGroqApiKey: () => {
+        set({ groqApiKey: null })
+      },
+      
+      hasGroqApiKey: () => {
+        return !!get().groqApiKey
       }
     }),
     {
