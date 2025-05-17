@@ -268,6 +268,34 @@ const Loading = ({ tool }: { tool?: string }) => {
 // Assistant message component
 const AssistantMessage = ({ message }: { message: { id: string; content: string } }) => {
 	if (!message) return null;
+	const [displayedContent, setDisplayedContent] = useState("");
+
+	useEffect(() => {
+		setDisplayedContent(""); // Reset when message changes
+		let index = 0;
+		let timeoutId: NodeJS.Timeout | null = null;
+
+		const typeCharacter = () => {
+			if (index < message.content.length) {
+				setDisplayedContent((prev) => prev + message.content[index]);
+				index++;
+				const randomDelay = Math.random() * 25;
+				timeoutId = setTimeout(typeCharacter, randomDelay);
+			} else {
+				if (timeoutId) clearTimeout(timeoutId);
+			}
+		};
+
+		if (message.content) {
+			typeCharacter();
+		}
+
+		return () => {
+			if (timeoutId) {
+				clearTimeout(timeoutId);
+			}
+		}; // Cleanup on component unmount or message change
+	}, [message.content, message.id]); // Depend on message.content and message.id
 
 	return (
 		<AnimatePresence mode="wait">
@@ -278,7 +306,7 @@ const AssistantMessage = ({ message }: { message: { id: string; content: string 
 				exit={{ opacity: 0 }}
 				className="whitespace-pre-wrap font-mono text-sm text-foreground overflow-hidden"
 			>
-				{message.content}
+				{displayedContent}
 			</motion.div>
 		</AnimatePresence>
 	);
