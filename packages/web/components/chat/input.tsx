@@ -230,7 +230,7 @@ export function PromptInputWithActions({
 					tooltip={isLoading ? "Stop generation" : "Send message"}
 				>
 					<Button
-						type="submit" // Ensure this is submit for the form
+						type="submit" // This is sufficient to trigger the form's onSubmit
 						variant="default"
 						size="icon"
 						className="h-8 w-8 rounded-full"

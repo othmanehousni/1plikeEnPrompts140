@@ -39,7 +39,6 @@ export interface ChatProps {
 	isSpeaking?: boolean;
 	onToggleAutoTTS?: () => void;
 	onMessagesChange?: (hasMessages: boolean) => void;
-	refreshCourses?: () => void;
 }
 
 // Search Result Item Component with expandable view
@@ -296,7 +295,6 @@ export default function Chat({
 	isSpeaking = false,
 	onToggleAutoTTS,
 	onMessagesChange,
-	refreshCourses,
 }: ChatProps) {
 	// State for course selection
 	const [selectedCourse, setSelectedCourse] = useState<EDCourse | null>(
@@ -423,7 +421,7 @@ export default function Chat({
 	return (
 		<>
 			{/* Course Selection Dropdown */}
-			{edStemApiKey && (
+			{edStemApiKey && courses.length > 0 && (
 				<div className="relative mb-2" ref={dropdownRef}>
 					<button
 						type="button"
@@ -436,11 +434,9 @@ export default function Chat({
 						<div className="flex items-center gap-2">
 							<span className="text-xs text-muted-foreground">Course:</span>
 							<span className="truncate max-w-[300px] text-primary dark:text-primary">
-								{courses.length === 0 
-									? "No courses available"
-									: selectedCourse
-										? `${selectedCourse.code || ""} ${selectedCourse.name || ""}`.trim()
-										: "Select a course"}
+								{selectedCourse
+									? `${selectedCourse.code || ""} ${selectedCourse.name || ""}`.trim()
+									: "Select a course"}
 							</span>
 						</div>
 						<ChevronDownIcon className="h-4 w-4 text-muted-foreground" />
@@ -449,55 +445,30 @@ export default function Chat({
 					{isCoursesDropdownOpen && (
 						<div className="absolute z-10 mt-1 w-full rounded-md shadow-lg bg-card dark:bg-card ring-1 ring-border dark:ring-border focus:outline-none">
 							<div className="py-1 max-h-48 overflow-auto">
-								{courses.length === 0 ? (
-									<div className="px-4 py-2 text-sm text-foreground text-center">
-										No courses available
-									</div>
-								) : (
-									courses.map((course) => (
-										<button
-											type="button"
-											key={course.id}
-											className={cn(
-												"flex items-center justify-between w-full px-4 py-2 text-sm transition-colors",
-												"hover:bg-primary/10 dark:hover:bg-primary/20 hover:text-primary dark:hover:text-primary",
-												selectedCourse?.id === course.id
-													? "bg-primary/20 text-primary font-semibold dark:text-primary"
-													: "text-foreground"
-											)}
-											onClick={() => {
-												setSelectedCourse(course);
-												setIsCoursesDropdownOpen(false);
-											}}
-										>
-											<span className="truncate">
-												{course.code} {course.name}
-											</span>
-											{selectedCourse?.id === course.id && (
-												<CheckIcon className="h-4 w-4 text-primary dark:text-primary" />
-											)}
-										</button>
-									))
-								)}
-							</div>
-							{/* Refresh courses button */}
-							<div className="px-2 py-1 border-t border-border dark:border-border">
-								<button
-									type="button"
-									className="w-full text-xs text-center py-1 hover:text-primary transition-colors"
-									onClick={(e) => {
-										e.stopPropagation();
-										// Call parent refresh function
-										if (refreshCourses) {
-											refreshCourses();
-											if (onError) {
-												onError("Refreshing course list...");
-											}
-										}
-									}}
-								>
-									Refresh Courses
-								</button>
+								{courses.map((course) => (
+									<button
+										type="button"
+										key={course.id}
+										className={cn(
+											"flex items-center justify-between w-full px-4 py-2 text-sm transition-colors",
+											"hover:bg-primary/10 dark:hover:bg-primary/20 hover:text-primary dark:hover:text-primary",
+											selectedCourse?.id === course.id
+												? "bg-primary/20 text-primary font-semibold dark:text-primary"
+												: "text-foreground"
+										)}
+										onClick={() => {
+											setSelectedCourse(course);
+											setIsCoursesDropdownOpen(false);
+										}}
+									>
+										<span className="truncate">
+											{course.code} {course.name}
+										</span>
+										{selectedCourse?.id === course.id && (
+											<CheckIcon className="h-4 w-4 text-primary dark:text-primary" />
+										)}
+									</button>
+								))}
 							</div>
 						</div>
 					)}

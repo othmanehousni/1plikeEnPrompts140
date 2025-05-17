@@ -21,6 +21,9 @@ type UserPreferences = {
   transcribedText: string | null
   setTranscribedText: (text: string) => void
   clearTranscribedText: () => void
+
+  userName?: string
+  theme?: "light" | "dark" | "system"
 }
 
 export const useUserPreferences = create<UserPreferences>()(
