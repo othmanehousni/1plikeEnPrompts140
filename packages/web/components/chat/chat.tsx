@@ -274,12 +274,14 @@ const AssistantMessage = ({ message }: { message: { id: string; content: string 
 		setDisplayedContent(""); // Reset when message changes
 		let index = 0;
 		let timeoutId: NodeJS.Timeout | null = null;
+		let currentText = "";  // Track the text locally to avoid race conditions
 
 		const typeCharacter = () => {
 			if (index < message.content.length) {
-				setDisplayedContent((prev) => prev + message.content[index]);
+				currentText += message.content[index];  // Add character to local variable
+				setDisplayedContent(currentText);  // Set state with complete string
 				index++;
-				const randomDelay = Math.random() * 25;
+				const randomDelay = Math.floor(Math.random() * 25) + 1; // Ensures delay is between 1-25ms
 				timeoutId = setTimeout(typeCharacter, randomDelay);
 			} else {
 				if (timeoutId) clearTimeout(timeoutId);
