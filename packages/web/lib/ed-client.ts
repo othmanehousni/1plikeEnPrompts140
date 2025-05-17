@@ -29,27 +29,66 @@ export class EDClient {
     }
 
     /**
+     * Helper method to handle rate limiting with automatic retries
+     */
+    private async withRateLimitRetry<T>(operation: () => Promise<T>, retries = 3, delay = 5000): Promise<T> {
+        try {
+            return await operation();
+        } catch (error) {
+            if (retries > 0 && error instanceof Error) {
+                // Check for rate limit error patterns
+                const isRateLimit = 
+                    (error.message && error.message.includes('429')) || 
+                    (error.message && error.message.includes('Too Many Requests')) ||
+                    (error.message && error.message.includes('rate_limit'));
+                    
+                if (isRateLimit) {
+                    console.log(`[ED-CLIENT.ts] ⏱️ Rate limit hit, waiting ${delay/1000} seconds before retry (${retries} left)...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    return this.withRateLimitRetry(operation, retries - 1, delay * 1.5); // Exponential backoff
+                }
+            }
+            // If it's not a rate limit error or we've exhausted retries, rethrow
+            throw error;
+        }
+    }
+
+    /**
+     * Perform a fetch request with rate limit retry protection
+     */
+    private async fetchWithRetry(url: string, options: RequestInit = {}): Promise<Response> {
+        return this.withRateLimitRetry(async () => {
+            const response = await fetch(url, {
+                ...options,
+                headers: {
+                    'origin': 'https://eu.edstem.org',
+                    'x-token': this.apiKey,
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (compatible; AskEd/1.0)',
+                    ...(options.headers || {})
+                }
+            });
+            
+            if (!response.ok) {
+                const errorBody = await response.text();
+                console.error(`[ED-CLIENT.ts] API request failed: ${response.status} ${response.statusText}`, errorBody);
+                throw new Error(`[ED-CLIENT.ts] API request failed: ${response.status} ${response.statusText}. Details: ${errorBody}`);
+            }
+            
+            return response;
+        });
+    }
+
+    /**
      * Get the active courses the user is enrolled in.
      * @returns an array, containing the active courses.
      */
     public async getCourses(): Promise<EDCourse[]> {
         console.log("Fetching user info from /api/user...");
-        const response = await fetch(`${this.baseUrl}user`, {
-            headers: {
-                'origin': 'https://eu.edstem.org',
-                'x-token': this.apiKey, 
-                'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (compatible; AskEd/1.0)',
-            }
-        });
-
-        if (!response.ok) {
-            const errorBody = await response.text();
-            console.error(`[ED-CLIENT.ts] Failed to get user info: ${response.status} ${response.statusText}`, errorBody);
-            throw new Error(`[ED-CLIENT.ts] Failed to get user info: ${response.status} ${response.statusText}. Details: ${errorBody}`);
-        }
-
+        
+        const response = await this.fetchWithRetry(`${this.baseUrl}user`);
         const rawData: EDUserApiResponse = await response.json();
+        
         console.log("Received user info data, attempting to parse with Zod:", rawData);
         return rawData.courses.map(course => course.course).filter(this.isCourseActive);
     }
@@ -78,21 +117,8 @@ export class EDClient {
                     url += `&offset=${offset}`;
                 }
                 url += `&sort=new`;
-                const response = await fetch(url, {
-                    headers: {
-                        'origin': 'https://eu.edstem.org',
-                        'x-token': this.apiKey,
-                        'Content-Type': 'application/json',
-                        'User-Agent': 'Mozilla/5.0 (compatible; AskEd/1.0)',
-                    }
-                });
                 
-                if (!response.ok) {
-                    const errorBody = await response.text();
-                    console.error(`[ED-CLIENT.ts] Failed to get threads for course ${courseId} (page ${page}): ${response.status} ${response.statusText}`, errorBody);
-                    throw new Error(`[ED-CLIENT.ts] Failed to get threads: ${response.status} ${response.statusText}. Details: ${errorBody}`);
-                }
-                
+                const response = await this.fetchWithRetry(url);
                 const rawData: EDThreadsListResponse = await response.json();
                 
                 try {
@@ -135,24 +161,10 @@ export class EDClient {
     }
 
     public async fetchThread(threadId: number): Promise<EDThread> {
-        console.log(`[ED-CLIENT.ts] Fetching answers for thread ${threadId}...`);
+        console.log(`[ED-CLIENT.ts] Fetching thread ${threadId}...`);
         
         try {
-            const response = await fetch(`${this.baseUrl}threads/${threadId}`, {
-                headers: {
-                    'origin': 'https://eu.edstem.org',
-                    'x-token': this.apiKey,
-                    'Content-Type': 'application/json',
-                    'User-Agent': 'Mozilla/5.0 (compatible; AskEd/1.0)',
-                }
-            });
-            
-            if (!response.ok) {
-                const errorBody = await response.text();
-                console.error(`[ED-CLIENT.ts] Failed to get thread ${threadId}: ${response.status} ${response.statusText}`, errorBody);
-                throw new Error(`[ED-CLIENT.ts]Failed to get thread: ${response.status} ${response.statusText}. Details: ${errorBody}`);
-            }
-            
+            const response = await this.fetchWithRetry(`${this.baseUrl}threads/${threadId}`);
             const rawData = await response.json();
             
             try {
@@ -161,7 +173,6 @@ export class EDClient {
                 
                 console.log(`[ED-CLIENT.ts] Successfully fetched thread ${threadResponse.id} with ${threadResponse.answers.length} answers and ${threadResponse.comments.length} comments.`);
                 
-                // Map the detailed EDAnswer to the simpler EDListedAnswer format expected by this method's return type
                 return threadResponse;
                 
             } catch (error) {
@@ -171,7 +182,7 @@ export class EDClient {
                 if (rawData && typeof rawData === 'object' && 'thread' in rawData) {
                     const threadProperty = (rawData as { thread: unknown }).thread;
                     if (threadProperty && typeof threadProperty === 'object') {
-                        console.warn(`[ED-CLIENT.ts]Falling back to lenient parsing for thread ${threadId}.`);
+                        console.warn(`[ED-CLIENT.ts] Falling back to lenient parsing for thread ${threadId}.`);
                         return threadProperty as EDThread;
                     }
                 }
@@ -180,7 +191,7 @@ export class EDClient {
             }
             
         } catch (error) {
-            console.error(`[ED-CLIENT.ts] Error fetching answers for thread ${threadId}:`, error);
+            console.error(`[ED-CLIENT.ts] Error fetching thread ${threadId}:`, error);
             throw error;
         }
     }

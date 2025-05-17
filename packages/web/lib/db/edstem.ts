@@ -3,7 +3,7 @@ import { courses, threads, answers } from "./schema";
 import { eq, desc as drizzleDesc } from "drizzle-orm";
 import { z } from "zod";
 import { EDClient } from '@/lib/ed-client';
-import type { EDListedThread, EDListedAnswer, EdStemImage, EDCourse, EDUserCourseEntry } from '@/types/schema/ed.schema'; // Import centralized types
+import type { EDListedThread, EDListedAnswer, EDCourse, EDUserCourseEntry } from '@/types/schema/ed.schema'; // Import centralized types
 
 // Local type definitions for EdStemThread and EdStemAnswer (used by sync logic) are now replaced by EDListedThread and EDListedAnswer.
 // EdStemImage type is also imported.
@@ -85,10 +85,10 @@ async function syncAnswersForThread(threadId: number, client: EDClient): Promise
 		}));
 
 		if (!edAnswersFromAPI || edAnswersFromAPI.length === 0) {
-			console.log(`No answers found for thread ${threadId} from EdStem or answers array is empty.`);
+			console.log(`[EDSTEM.ts] No answers found for thread ${threadId} from EdStem or answers array is empty.`);
 			return { threadId, answersInserted: 0, answersUpdated: 0, answersErrored: 0 };
 		}
-		console.log(`Received ${edAnswersFromAPI.length} answers for thread ${threadId} from EdStem.`);
+		console.log(`[EDSTEM.ts] Received ${edAnswersFromAPI.length} answers for thread ${threadId} from EdStem.`);
 
 		let answersInserted = 0;
 		let answersUpdated = 0;
@@ -124,37 +124,57 @@ async function syncAnswersForThread(threadId: number, client: EDClient): Promise
 				}
 			} catch (error) {
 				answersErrored++;
-				console.error(`Error processing answer ${edAnswer.id} for thread ${threadId}:`, error);
+				console.error(`[EDSTEM.ts] Error processing answer ${edAnswer.id} for thread ${threadId}:`, error);
 				if (error && typeof error === 'object' && 'code' in error && (error as {code:string}).code === '42P01') {
-                    console.warn(`DB operation failed for answer ${edAnswer.id} because 'answers' table does not exist. Setup migrations.`);
+                    console.warn(`[EDSTEM.ts] DB operation failed for answer ${edAnswer.id} because 'answers' table does not exist. Setup migrations.`);
                 }
 			}
 		}
-		console.log(`Finished syncing answers for thread ${threadId}. Inserted: ${answersInserted}, Updated: ${answersUpdated}, Errored: ${answersErrored}`);
+		console.log(`[EDSTEM.ts] Finished syncing answers for thread ${threadId}. Inserted: ${answersInserted}, Updated: ${answersUpdated}, Errored: ${answersErrored}`);
 		return { threadId, answersInserted, answersUpdated, answersErrored };
 	} catch (error) {
-		console.error(`Failed to fetch or process answers for thread ${threadId}:`, error);
+		console.error(`[EDSTEM.ts] Failed to fetch or process answers for thread ${threadId}:`, error);
 		return { threadId, answersInserted: 0, answersUpdated: 0, answersErrored: edAnswersFromAPI?.length || 1 };
 	}
 }
 
-async function syncThreadsForCourse(courseId: number, client: EDClient): Promise<ThreadSyncStats> {
-	console.log(`Syncing threads for course ${courseId}...`);
+async function syncThreadsForCourse(courseId: number, client: EDClient, courseName: string = ""): Promise<ThreadSyncStats> {
+	console.log(`[EDSTEM.ts] 🔄 Syncing threads for course ${courseName || courseId}...`);
 	let edThreadsFromAPI: EDListedThread[] = []; 
-	try {
-		edThreadsFromAPI = await client.getThreadsForCourse(courseId); // Returns EDListedThread[]
+	let currentPage = 0;
+	let hasMorePages = true;
+	let threadsInserted = 0;
+	let threadsUpdated = 0;
+	let threadsErrored = 0;
 
-		if (!edThreadsFromAPI || edThreadsFromAPI.length === 0) {
-			console.log(`No threads found for course ${courseId} from EdStem or threads array is empty.`);
+	try {
+		// Fetch all pages of threads using pagination
+		while (hasMorePages) {
+			console.log(`[EDSTEM.ts] 📄 Downloading page ${currentPage} for course ${courseName || courseId}...`);
+			const pageThreads = await client.getThreadsForCourse(courseId, { page: currentPage, limit: 30 });
+			
+			if (!pageThreads || pageThreads.length === 0) {
+				console.log(`[EDSTEM.ts] ℹ️ No threads found for course ${courseName || courseId} on page ${currentPage}`);
+				break;
+			}
+			
+			console.log(`[EDSTEM.ts] 📥 Received ${pageThreads.length} threads for course ${courseName || courseId} (page ${currentPage})`);
+			edThreadsFromAPI = [...edThreadsFromAPI, ...pageThreads];
+			
+			// If we got fewer threads than the limit, there are no more pages
+			hasMorePages = pageThreads.length === 30;
+			currentPage++;
+		}
+
+		if (edThreadsFromAPI.length === 0) {
+			console.log(`[EDSTEM.ts] ⚠️ No threads found for course ${courseName || courseId}`);
 			return { courseId, threadsInserted: 0, threadsUpdated: 0, threadsErrored: 0 };
 		}
-		console.log(`Received ${edThreadsFromAPI.length} threads for course ${courseId} from EdStem.`);
+		
+		console.log(`[EDSTEM.ts] 📊 Total of ${edThreadsFromAPI.length} threads found for course ${courseName || courseId}`);
 
-		let threadsInserted = 0;
-		let threadsUpdated = 0;
-		let threadsErrored = 0;
-
-		for (const edThread of edThreadsFromAPI) { // edThread is EDListedThread
+		// Process all threads
+		for (const edThread of edThreadsFromAPI) {
 			try {
 				const existingThread = await db.query.threads.findFirst({
 					where: eq(threads.id, edThread.id),
@@ -163,7 +183,7 @@ async function syncThreadsForCourse(courseId: number, client: EDClient): Promise
 				const threadData = {
 					courseId: courseId,
 					title: edThread.title,
-					message: typeof edThread.message === 'string' ? edThread.message : null,
+					message: typeof edThread.document === 'string' ? edThread.document : null,
 					category: edThread.category || null,
 					subcategory: edThread.subcategory || null,
 					subsubcategory: edThread.subsubcategory || null,
@@ -190,16 +210,17 @@ async function syncThreadsForCourse(courseId: number, client: EDClient): Promise
 				}
 			} catch (error) {
 				threadsErrored++;
-				console.error(`Error processing thread ${edThread.id} for course ${courseId}:`, error);
+				console.error(`[EDSTEM.ts] ❌ Error processing thread ${edThread.id} for course ${courseName || courseId}:`, error);
 				if (error && typeof error === 'object' && 'code' in error && (error as {code:string}).code === '42P01') {
-                    console.warn(`DB operation failed for thread ${edThread.id} because 'threads' table does not exist. Setup migrations.`);
+                    console.warn(`[EDSTEM.ts] ⚠️ DB operation failed for thread ${edThread.id}: 'threads' table does not exist. Run migrations.`);
                 }
 			}
 		}
-		console.log(`Finished syncing threads for course ${courseId}. Inserted: ${threadsInserted}, Updated: ${threadsUpdated}, Errored: ${threadsErrored}`);
+
+		console.log(`[EDSTEM.ts] ✅ Threads sync completed for course ${courseName || courseId}. Inserted: ${threadsInserted}, Updated: ${threadsUpdated}, Errors: ${threadsErrored}`);
 		return { courseId, threadsInserted, threadsUpdated, threadsErrored };
 	} catch (error) {
-		console.error(`Failed to fetch or process threads for course ${courseId}:`, error);
+		console.error(`[EDSTEM.ts] ❌ Failed to sync threads for course ${courseName || courseId}:`, error);
 		return { courseId, threadsInserted: 0, threadsUpdated: 0, threadsErrored: edThreadsFromAPI?.length || 1 };
 	}
 }
@@ -216,15 +237,15 @@ export async function syncEdStemCourses(options: EdStemSyncOptions): Promise<{
 		const coursesResp = await client.getCourses();
 		
 		if (coursesResp.length === 0) {
-			console.log("[EDSTEM.ts] No courses found in user info response or courses array is empty.");
+			console.log("[EDSTEM.ts] ⚠️ No courses found in API response.");
 			let lastSyncDate: Date | null = null;
 			try {
 				lastSyncDate = await getLastSyncDate();
 			} catch (dbError) {
 				 if (dbError && typeof dbError === 'object' && 'code' in dbError && (dbError as {code: string}).code === '42P01') {
-					console.warn("[EDSTEM.ts] getLastSyncDate failed because 'courses' table does not exist. Setup migrations.");
+					console.warn("[EDSTEM.ts] ⚠️ getLastSyncDate failed because 'courses' table does not exist. Run migrations.");
 				} else {
-					console.error("[EDSTEM.ts] Unknown DB error in getLastSyncDate (when no courses):", dbError);
+					console.error("[EDSTEM.ts] ❌ Unknown DB error in getLastSyncDate:", dbError);
 				}
 			}
 			return {
@@ -233,7 +254,7 @@ export async function syncEdStemCourses(options: EdStemSyncOptions): Promise<{
 				lastSynced: lastSyncDate
 			};
 		}
-		console.log(`[EDSTEM.ts] Received ${coursesResp.length} course entries from EdStem user info`);
+		console.log(`[EDSTEM.ts] 📚 ${coursesResp.length} courses received from EdStem`);
 		
 		const syncResults: CourseSyncResult[] = [];
 
@@ -252,6 +273,9 @@ export async function syncEdStemCourses(options: EdStemSyncOptions): Promise<{
 					continue;
 				}
 
+				const courseName = edCourse.name || edCourse.code || `Course #${edCourse.id}`;
+				console.log(`[EDSTEM.ts] 🔄 Starting sync for course "${courseName}"`);
+
 				const existingCourse = await db.query.courses.findFirst({
 					where: eq(courses.id, edCourse.id),
 				});
@@ -262,7 +286,7 @@ export async function syncEdStemCourses(options: EdStemSyncOptions): Promise<{
 						.set({
 							code: edCourse.code || existingCourse.code || "",
 							name: edCourse.name || existingCourse.name || "",
-							year: edCourse.year || existingCourse.year || "", // EDCourse has 'year'
+							year: edCourse.year || existingCourse.year || "", 
 							lastSynced: new Date(),
 						})
 						.where(eq(courses.id, edCourse.id));
@@ -272,23 +296,24 @@ export async function syncEdStemCourses(options: EdStemSyncOptions): Promise<{
 						id: edCourse.id,
 						code: edCourse.code || "",
 						name: edCourse.name || "",
-						year: edCourse.year || "", // EDCourse has 'year'
+						year: edCourse.year || "",
 						lastSynced: new Date(),
 					});
 					courseActionResult.action = "inserted";
 				}
 				
-				const threadSyncStats = await syncThreadsForCourse(edCourse.id, client);
+				const threadSyncStats = await syncThreadsForCourse(edCourse.id, client, courseName);
 				courseActionResult.threads = threadSyncStats;
+				console.log(`[EDSTEM.ts] ✅ Course "${courseName}" sync completed successfully!`);
 
 			} catch (error) {
 				courseActionResult.action = "error";
 				courseActionResult.error = String(error);
 				if (error && typeof error === 'object' && 'code' in error && (error as {code:string}).code === '42P01') { 
-					console.warn(`DB operation failed for course ${edCourse.id} because 'courses' table does not exist. Setup migrations.`);
+					console.warn(`[EDSTEM.ts] ⚠️ DB operation failed for course ${edCourse.id} because 'courses' table does not exist. Run migrations.`);
 					courseActionResult.error = "Database table 'courses' not found.";
 				}
-				console.error(`[EDSTEM.ts] Error processing course ${edCourse.id} from user info:`, error);
+				console.error(`[EDSTEM.ts] ❌ Error processing course ${edCourse.id}:`, error);
 			}
 			syncResults.push(courseActionResult);
 		}
@@ -301,19 +326,22 @@ export async function syncEdStemCourses(options: EdStemSyncOptions): Promise<{
 			latestOverallSyncDate = latestCourseSync?.lastSynced ? new Date(latestCourseSync.lastSynced) : new Date();
 		} catch (dbError) {
 			if (dbError && typeof dbError === 'object' && 'code' in dbError && (dbError as {code: string}).code === '42P01') {
-				console.warn("Could not get latest overall sync date because 'courses' table does not exist.");
+				console.warn("[EDSTEM.ts] ⚠️ Could not get latest sync date because 'courses' table does not exist.");
 			} else {
-				console.error("Unknown DB error getting latestOverallSyncDate:", dbError);
+				console.error("[EDSTEM.ts] ❌ Unknown DB error:", dbError);
 			}
 		}
 
+		const successCount = syncResults.filter(r => r.action === 'inserted' || r.action === 'updated').length;
+		console.log(`[EDSTEM.ts] 🎉 Global sync completed! ${successCount} courses successfully synchronized.`);
+
 		return {
-			count: syncResults.filter(r => r.action === 'inserted' || r.action === 'updated').length,
+			count: successCount,
 			results: syncResults,
 			lastSynced: latestOverallSyncDate
 		};
 	} catch (error) {
-		console.error("Error in syncEdStemCourses (using getUserInfo):", error);
+		console.error("[EDSTEM.ts] ❌ Error synchronizing courses:", error);
 		return {
 			count: 0,
 			results: [{ id: null as number | null, action: "error_main" as const, error: String(error), threads: {} }],
@@ -333,7 +361,7 @@ export async function getLastSyncDate(): Promise<Date | null> {
             console.warn("getLastSyncDate failed because 'courses' table does not exist. Please setup Drizzle migrations.");
             return null; 
         }
-		console.error("Error getting last sync date:", error);
+		console.error("[EDSTEM.ts] Error getting last sync date:", error);
 		throw error; 
 	}
 }
