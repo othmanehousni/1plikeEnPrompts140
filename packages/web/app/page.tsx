@@ -193,13 +193,107 @@ export default function Home() {
 	const [courses, setCourses] = useState<EDCourse[]>([]);
 	const [isExpanded, setIsExpanded] = useState<boolean>(false);
 	const [hasMessages, setHasMessages] = useState<boolean>(false);
+	const [courseLoadError, setCourseLoadError] = useState<string | null>(null);
+
+	// Fonction utilitaire pour récupérer directement la clé API depuis le localStorage
+	const getLatestEdStemApiKey = (): string | null => {
+		// Vérifier si window est défini (pour éviter les erreurs côté serveur)
+		if (typeof window === 'undefined') return null;
+		
+		try {
+			// Le format dans lequel Zustand/persist stocke les données
+			const storedPrefs = localStorage.getItem('user-preferences');
+			if (!storedPrefs) return null;
+			
+			const parsed = JSON.parse(storedPrefs);
+			return parsed?.state?.edStemApiKey || null;
+		} catch (error) {
+			console.error("Erreur lors de la récupération de la clé API depuis localStorage:", error);
+			return null;
+		}
+	};
+
+	// Function to fetch courses that can be called when API key changes
+	const fetchCourses = async (useLatestToken = false) => {
+		// Get the latest token directly from localStorage if requested
+		const apiKey = useLatestToken 
+			? getLatestEdStemApiKey() 
+			: edStemApiKey;
+			
+		if (!apiKey) {
+			showError("Aucune clé API EdStem trouvée. Veuillez d'abord ajouter votre clé dans les paramètres.");
+			return;
+		}
+		
+		try {
+			setCourseLoadError(null);
+			console.log("Fetching courses with API key:", apiKey.substring(0, 5) + "...");
+			
+			const response = await fetch("/api/edstem/courses", {
+				headers: {
+					"x-edstem-api-key": apiKey,
+				},
+			});
+			
+			if (!response.ok) {
+				let errorMsg = `Error ${response.status}: Failed to fetch courses`;
+				try {
+					const errorData = await response.json();
+					if (errorData.error) {
+						errorMsg = errorData.error;
+					}
+				} catch (e) {
+					// Parsing error, use default message
+				}
+				
+				console.error("Course fetch error:", errorMsg);
+				setCourseLoadError(errorMsg);
+				// Show error notification instead of inline error
+				showError(errorMsg);
+				return;
+			}
+			
+			const data = await response.json();
+			if (data.courses && Array.isArray(data.courses)) {
+				setCourses(data.courses);
+				console.log(`Loaded ${data.courses.length} courses successfully`);
+				setCourseLoadError(null);
+				
+				// Si nous avons chargé des cours avec succès, mais que la clé API dans l'état React est différente,
+				// mettons à jour l'état avec la nouvelle clé
+				if (useLatestToken && apiKey !== edStemApiKey) {
+					console.log("Updating React state with latest API key from localStorage");
+					useUserPreferences.getState().setEdStemApiKey(apiKey);
+				}
+			} else {
+				const errorMsg = "No courses found or invalid response format";
+				setCourseLoadError(errorMsg);
+				showError(errorMsg);
+			}
+		} catch (error) {
+			console.error("Error fetching courses:", error);
+			const errorMsg = "Failed to connect to course API";
+			setCourseLoadError(errorMsg);
+			showError(errorMsg);
+		}
+	};
 
 	useEffect(() => {
 		setMounted(true);
 		setCurrentTime(Date.now());
 
+		// Vérifier s'il y a une clé API dans le localStorage, même si l'état React n'est pas encore mis à jour
+		const storedApiKey = getLatestEdStemApiKey();
+		const apiKeyToUse = edStemApiKey || storedApiKey;
+
 		// Fetch last sync date on mount if we have an API key
-		if (edStemApiKey) {
+		if (apiKeyToUse) {
+			// Synchroniser l'état React avec la clé du localStorage si nécessaire
+			if (storedApiKey && !edStemApiKey) {
+				console.log("Mise à jour de l'état React avec la clé API du localStorage");
+				useUserPreferences.getState().setEdStemApiKey(storedApiKey);
+			}
+			
 			const fetchLastSyncDate = async () => {
 				try {
 					const response = await fetch("/api/edstem/last-sync");
@@ -216,28 +310,26 @@ export default function Home() {
 
 			fetchLastSyncDate();
 
-			// Fetch available courses
-			const fetchCourses = async () => {
-				try {
-					const response = await fetch("/api/edstem/courses", {
-						headers: {
-							"x-edstem-api-key": edStemApiKey,
-						},
-					});
-					if (response.ok) {
-						const data = await response.json();
-						if (data.courses && Array.isArray(data.courses)) {
-							setCourses(data.courses);
-						}
-					}
-				} catch (error) {
-					console.error("Error fetching courses:", error);
-				}
-			};
-
-			fetchCourses();
+			// Fetch courses with the current API key
+			fetchCourses(true); // Utiliser toujours la dernière clé au chargement
 		}
 	}, [edStemApiKey]);
+
+	// Set up a listener for apiKey changes to trigger course refresh
+	useEffect(() => {
+		// Create an observer for userPreferences store changes
+		const unsubscribe = useUserPreferences.subscribe(
+			(state, prevState) => {
+				// Only refresh courses if the API key changed and is not empty
+				if (state.edStemApiKey !== prevState.edStemApiKey && state.edStemApiKey) {
+					console.log("EdStem API key changed, refreshing courses...");
+					fetchCourses(true); // Use the latest token from the store
+				}
+			}
+		);
+		
+		return () => unsubscribe();
+	}, []);
 
 	useEffect(() => {
 		if (!mounted) return;
@@ -465,6 +557,43 @@ export default function Home() {
 					)}
 				>
 					<div className="flex flex-col w-full justify-between gap-2">
+						{/* Course loading status */}
+						{edStemApiKey && courses.length === 0 && (
+							<div className="bg-muted/50 dark:bg-muted/50 rounded-md p-3 text-sm text-center">
+								{courseLoadError ? (
+									<div className="text-red-500 dark:text-red-400">
+										<p>No courses available</p>
+										<button 
+											onClick={() => fetchCourses(true)} 
+											className="mt-2 text-xs underline text-primary"
+										>
+											Retry
+										</button>
+									</div>
+								) : (
+									<div className="flex flex-col items-center space-y-2">
+										<div className="animate-spin">
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
+												width="18"
+												height="18"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												strokeWidth="2"
+												strokeLinecap="round"
+												strokeLinejoin="round"
+												aria-hidden="true"
+											>
+												<path d="M21 12a9 9 0 1 1-6.219-8.56" />
+											</svg>
+										</div>
+										<p>Loading courses...</p>
+									</div>
+								)}
+							</div>
+						)}
+						
 						<Chat
 							edStemApiKey={edStemApiKey || undefined}
 							togetherApiKey={togetherApiKey || undefined}
@@ -476,6 +605,7 @@ export default function Home() {
 							isSpeaking={isSpeaking}
 							onToggleAutoTTS={() => setIsAutoTTSActive((prev) => !prev)}
 							onMessagesChange={setIsExpanded}
+							refreshCourses={() => fetchCourses(true)}
 						/>
 					</div>
 				</motion.div>

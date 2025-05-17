@@ -13,16 +13,59 @@ export async function GET(request: NextRequest) {
 			);
 		}
 
-		// Fetch courses from ED API
-		const client = new EDClient(edStemApiKey);
-		const courses = await client.getCourses();
+		try {
+			// Fetch courses from ED API with a timeout for API calls
+			const client = new EDClient(edStemApiKey);
+			
+			// Add a timeout wrapper for the API call
+			const timeoutPromise = new Promise((_, reject) => {
+				setTimeout(() => reject(new Error("Request timeout")), 15000);
+			});
+			
+			const coursesPromise = client.getCourses();
+			const courses = await Promise.race([coursesPromise, timeoutPromise]) as any;
+			
+			if (!courses || !Array.isArray(courses)) {
+				return NextResponse.json(
+					{ error: "Invalid response format from EdStem API" },
+					{ status: 500 },
+				);
+			}
 
-		// Return courses
-		return NextResponse.json({ courses });
-	} catch (error) {
+			// Return courses
+			return NextResponse.json({ courses });
+		} catch (apiError: any) {
+			// Handle specific API errors
+			if (apiError.message?.includes("401") || apiError.message?.includes("Unauthorized")) {
+				return NextResponse.json(
+					{ error: "Invalid EdStem API key. Please check your credentials." },
+					{ status: 401 },
+				);
+			}
+			
+			if (apiError.message?.includes("429") || apiError.message?.includes("Too Many Requests")) {
+				return NextResponse.json(
+					{ error: "Rate limit exceeded on EdStem API. Please try again later." },
+					{ status: 429 },
+				);
+			}
+			
+			if (apiError.message?.includes("timeout")) {
+				return NextResponse.json(
+					{ error: "EdStem API request timed out. Please try again later." },
+					{ status: 504 },
+				);
+			}
+			
+			// Generic error with original message
+			throw apiError;
+		}
+	} catch (error: any) {
 		console.error("Error fetching courses:", error);
 		return NextResponse.json(
-			{ error: "Failed to fetch courses from ED" },
+			{ 
+				error: `Failed to fetch courses: ${error.message || "Unknown error"}` 
+			},
 			{ status: 500 },
 		);
 	}
