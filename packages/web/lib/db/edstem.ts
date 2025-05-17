@@ -4,6 +4,11 @@ import { eq, desc as drizzleDesc } from "drizzle-orm";
 import { z } from "zod";
 import { EDClient } from '@/lib/ed-client';
 import type { EDListedThread, EDListedAnswer, EDCourse, EDUserCourseEntry } from '@/types/schema/ed.schema'; // Import centralized types
+import { 
+  generateEmbeddings, 
+  prepareThreadTextForEmbedding, 
+  prepareAnswerTextForEmbedding 
+} from '@/lib/embeddings';
 
 // Local type definitions for EdStemThread and EdStemAnswer (used by sync logic) are now replaced by EDListedThread and EDListedAnswer.
 // EdStemImage type is also imported.
@@ -46,6 +51,7 @@ export type CourseRecord = {
 export type EdStemSyncOptions = {
 	apiKey: string;
 	courseId?: number;
+  togetherApiKey?: string;
 };
 
 const EU_EDSTEM_USER_ENDPOINT = "https://eu.edstem.org/api/user";
@@ -68,7 +74,7 @@ export async function testEdStemConnection(apiKey: string): Promise<string | und
 	}
 }
 
-async function syncAnswersForThread(threadId: number, client: EDClient): Promise<AnswerSyncStats> {
+async function syncAnswersForThread(threadId: number, client: EDClient, togetherApiKey?: string): Promise<AnswerSyncStats> {
 	console.log(`Syncing answers for thread ${threadId}...`);
 	let edAnswersFromAPI: EDListedAnswer[] = []; 
 	try {
@@ -100,6 +106,7 @@ async function syncAnswersForThread(threadId: number, client: EDClient): Promise
 					where: eq(answers.id, edAnswer.id),
 				});
 
+        // Prepare answer data
 				const answerData = {
 					threadId: threadId,
 					courseId: threadData.course_id,
@@ -111,15 +118,31 @@ async function syncAnswersForThread(threadId: number, client: EDClient): Promise
 					updatedAt: new Date(edAnswer.updated_at),
 				};
 
+        // Generate embedding if Together API key is available
+        let embedding = null;
+        if (togetherApiKey && edAnswer.message) {
+          const textForEmbedding = prepareAnswerTextForEmbedding(edAnswer.message as string);
+          embedding = await generateEmbeddings(textForEmbedding, togetherApiKey);
+          console.log(`[EDSTEM.ts] Generated embedding for answer ${edAnswer.id}`);
+        }
+
 				if (existingAnswer) {
 					if (existingAnswer.updatedAt && new Date(edAnswer.updated_at).getTime() > existingAnswer.updatedAt.getTime()) {
 						await db.update(answers)
-							.set({ ...answerData, updatedAt: new Date(edAnswer.updated_at) })
+							.set({ 
+                ...answerData, 
+                updatedAt: new Date(edAnswer.updated_at),
+                ...(embedding ? { embedding } : {})
+              })
 							.where(eq(answers.id, edAnswer.id));
 						answersUpdated++;
 					}
 				} else {
-					await db.insert(answers).values({ id: edAnswer.id, ...answerData });
+					await db.insert(answers).values({ 
+            id: edAnswer.id, 
+            ...answerData,
+            ...(embedding ? { embedding } : {})
+          });
 					answersInserted++;
 				}
 			} catch (error) {
@@ -138,7 +161,7 @@ async function syncAnswersForThread(threadId: number, client: EDClient): Promise
 	}
 }
 
-async function syncThreadsForCourse(courseId: number, client: EDClient, courseName: string = ""): Promise<ThreadSyncStats> {
+async function syncThreadsForCourse(courseId: number, client: EDClient, courseName: string = "", togetherApiKey?: string): Promise<ThreadSyncStats> {
 	console.log(`[EDSTEM.ts] 🔄 Syncing threads for course ${courseName || courseId}...`);
 	let edThreadsFromAPI: EDListedThread[] = []; 
 	let currentPage = 0;
@@ -180,6 +203,7 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, courseNa
 					where: eq(threads.id, edThread.id),
 				});
 
+        // Prepare thread data
 				const threadData = {
 					courseId: courseId,
 					title: edThread.title,
@@ -195,18 +219,39 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, courseNa
 					images: client.extractImageUrls(edThread.content as string),
 				};
 
+        // Generate embedding if Together API key is available
+        let embedding = null;
+        if (togetherApiKey) {
+          const textForEmbedding = prepareThreadTextForEmbedding(
+            edThread.title,
+            typeof edThread.document === 'string' ? edThread.document : null,
+            edThread.category,
+            edThread.subcategory
+          );
+          embedding = await generateEmbeddings(textForEmbedding, togetherApiKey);
+          console.log(`[EDSTEM.ts] Generated embedding for thread ${edThread.id}`);
+        }
+
 				if (existingThread) {
 					if (existingThread.updatedAt && new Date(edThread.updated_at).getTime() > existingThread.updatedAt.getTime()) {
 						await db.update(threads)
-							.set({ ...threadData, updatedAt: new Date(edThread.updated_at) })
+							.set({ 
+                ...threadData, 
+                updatedAt: new Date(edThread.updated_at),
+                ...(embedding ? { embedding } : {})
+              })
 							.where(eq(threads.id, edThread.id));
 						threadsUpdated++;
-						await syncAnswersForThread(edThread.id, client);
+						await syncAnswersForThread(edThread.id, client, togetherApiKey);
 					}
 				} else {
-					await db.insert(threads).values({ id: edThread.id, ...threadData });
+					await db.insert(threads).values({ 
+            id: edThread.id, 
+            ...threadData,
+            ...(embedding ? { embedding } : {})
+          });
 					threadsInserted++;
-					await syncAnswersForThread(edThread.id, client);
+					await syncAnswersForThread(edThread.id, client, togetherApiKey);
 				}
 			} catch (error) {
 				threadsErrored++;
@@ -230,8 +275,14 @@ export async function syncEdStemCourses(options: EdStemSyncOptions): Promise<{
     results: CourseSyncResult[];
     lastSynced: Date | null;
 }> {
-	const { apiKey, courseId } = options;
+	const { apiKey, courseId, togetherApiKey } = options;
 	const client = new EDClient(apiKey);
+
+  if (togetherApiKey) {
+    console.log("[EDSTEM.ts] 🧠 Vector embeddings will be generated using Together AI");
+  } else {
+    console.log("[EDSTEM.ts] ⚠️ No Together API key provided, skipping vector embedding generation");
+  }
 
 	try {
 		const coursesResp = await client.getCourses();
@@ -302,7 +353,7 @@ export async function syncEdStemCourses(options: EdStemSyncOptions): Promise<{
 					courseActionResult.action = "inserted";
 				}
 				
-				const threadSyncStats = await syncThreadsForCourse(edCourse.id, client, courseName);
+				const threadSyncStats = await syncThreadsForCourse(edCourse.id, client, courseName, togetherApiKey);
 				courseActionResult.threads = threadSyncStats;
 				console.log(`[EDSTEM.ts] ✅ Course "${courseName}" sync completed successfully!`);
 

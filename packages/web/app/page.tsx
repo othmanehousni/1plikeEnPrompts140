@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ToastContainer } from "@/components/ui/toast";
 import { useUserPreferences } from "@/lib/stores/user-preferences";
 import { useSyncStatus } from "@/lib/stores/sync-status";
-import { EDCourse } from "@/types/schema/ed.schema";
+import type { EDCourse } from "@/types/schema/ed.schema";
 import { CheckIcon, ChevronDownIcon } from "@/components/icons";
 
 // Helper for STT
@@ -19,12 +19,13 @@ let mediaRecorder: MediaRecorder | null = null;
 let audioChunks: Blob[] = [];
 // Preferred MIME types for recording, in order of preference
 const PREFERRED_AUDIO_FORMATS = [
-	'audio/webm', // Webm is widely supported
-	'audio/mp4',  // Safari often supports this
-	'audio/wav',  // Raw PCM data
-	'audio/ogg',  // Firefox often supports this
+	"audio/webm", // Webm is widely supported
+	"audio/mp4", // Safari often supports this
+	"audio/wav", // Raw PCM data
+	"audio/ogg", // Firefox often supports this
 ];
-let selectedAudioFormat = PREFERRED_AUDIO_FORMATS[PREFERRED_AUDIO_FORMATS.length -1]; // Default to last one
+let selectedAudioFormat =
+	PREFERRED_AUDIO_FORMATS[PREFERRED_AUDIO_FORMATS.length - 1]; // Default to last one
 
 export default function Home() {
 	const [toolCall, setToolCall] = useState<string>();
@@ -33,7 +34,7 @@ export default function Home() {
 	const { lastSyncedAt } = useSyncStatus();
 	const [mounted, setMounted] = useState<boolean>(false);
 	const [currentTime, setCurrentTime] = useState<number>(0);
-	
+
 	// TTS State
 	const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
 	const [isAutoTTSActive, setIsAutoTTSActive] = useState<boolean>(false);
@@ -42,7 +43,7 @@ export default function Home() {
 	// STT State
 	const [isRecording, setIsRecording] = useState<boolean>(false);
 	const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
-	
+
 	// ED Course Selection State
 	const [courses, setCourses] = useState<EDCourse[]>([]);
 	const [selectedCourse, setSelectedCourse] = useState<EDCourse | null>(null);
@@ -52,12 +53,12 @@ export default function Home() {
 	useEffect(() => {
 		setMounted(true);
 		setCurrentTime(Date.now());
-		
+
 		// Fetch last sync date on mount if we have an API key
 		if (edStemApiKey) {
 			const fetchLastSyncDate = async () => {
 				try {
-					const response = await fetch('/api/edstem/last-sync');
+					const response = await fetch("/api/edstem/last-sync");
 					if (response.ok) {
 						const data = await response.json();
 						if (data.lastSynced) {
@@ -65,19 +66,19 @@ export default function Home() {
 						}
 					}
 				} catch (error) {
-					console.error('Error fetching last sync date:', error);
+					console.error("Error fetching last sync date:", error);
 				}
 			};
-			
+
 			fetchLastSyncDate();
-			
+
 			// Fetch available courses
 			const fetchCourses = async () => {
 				try {
-					const response = await fetch('/api/edstem/courses', {
+					const response = await fetch("/api/edstem/courses", {
 						headers: {
-							'x-edstem-api-key': edStemApiKey
-						}
+							"x-edstem-api-key": edStemApiKey,
+						},
 					});
 					if (response.ok) {
 						const data = await response.json();
@@ -89,22 +90,25 @@ export default function Home() {
 						}
 					}
 				} catch (error) {
-					console.error('Error fetching courses:', error);
+					console.error("Error fetching courses:", error);
 				}
 			};
-			
+
 			fetchCourses();
 		}
 	}, [edStemApiKey]);
-	
+
 	// Handle clicking outside the dropdown to close it
 	useEffect(() => {
 		function handleClickOutside(event: MouseEvent) {
-			if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+			if (
+				dropdownRef.current &&
+				!dropdownRef.current.contains(event.target as Node)
+			) {
 				setIsCoursesDropdownOpen(false);
 			}
 		}
-		
+
 		document.addEventListener("mousedown", handleClickOutside);
 		return () => {
 			document.removeEventListener("mousedown", handleClickOutside);
@@ -159,10 +163,14 @@ export default function Home() {
 				}
 			},
 			onFinish: (message) => {
-				if (message.role === 'assistant' && isAutoTTSActive && message.content) {
+				if (
+					message.role === "assistant" &&
+					isAutoTTSActive &&
+					message.content
+				) {
 					handleSpeakMessage(message.content);
 				}
-			}
+			},
 		});
 
 	const [isExpanded, setIsExpanded] = useState<boolean>(false);
@@ -216,33 +224,53 @@ export default function Home() {
 		if (!textToSpeak || isSpeaking) return;
 		setIsSpeaking(true);
 		try {
-			const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-			if (groqApiKey) headers['x-groq-api-key'] = groqApiKey;
+			const headers: Record<string, string> = {
+				"Content-Type": "application/json",
+			};
+			if (groqApiKey) headers["x-groq-api-key"] = groqApiKey;
 
-			const response = await fetch('/api/speech', {
-				method: 'POST',
+			const response = await fetch("/api/speech", {
+				method: "POST",
 				headers,
 				body: JSON.stringify({ text: textToSpeak }),
 			});
 			if (!response.ok) {
 				let errorMsg = "Failed to generate speech.";
-				try { const errorData = await response.json(); errorMsg = errorData.error || errorMsg; } 
-				catch (e) { errorMsg = `Speech API error: ${response.status}`; }
+				try {
+					const errorData = await response.json();
+					errorMsg = errorData.error || errorMsg;
+				} catch (e) {
+					errorMsg = `Speech API error: ${response.status}`;
+				}
 				showError(errorMsg);
-				setIsSpeaking(false); return;
+				setIsSpeaking(false);
+				return;
 			}
 			const audioBlob = await response.blob();
 			const audioUrl = URL.createObjectURL(audioBlob);
 			if (audioPlayerRef.current) {
 				audioPlayerRef.current.src = audioUrl;
-				audioPlayerRef.current.play().catch(err => {
-					showError("Could not play audio."); setIsSpeaking(false); URL.revokeObjectURL(audioUrl);
+				audioPlayerRef.current.play().catch((err) => {
+					showError("Could not play audio.");
+					setIsSpeaking(false);
+					URL.revokeObjectURL(audioUrl);
 				});
-				audioPlayerRef.current.onended = () => { setIsSpeaking(false); URL.revokeObjectURL(audioUrl); };
-				audioPlayerRef.current.onerror = () => { showError("Audio player error."); setIsSpeaking(false); URL.revokeObjectURL(audioUrl); };
-			} else { setIsSpeaking(false); }
+				audioPlayerRef.current.onended = () => {
+					setIsSpeaking(false);
+					URL.revokeObjectURL(audioUrl);
+				};
+				audioPlayerRef.current.onerror = () => {
+					showError("Audio player error.");
+					setIsSpeaking(false);
+					URL.revokeObjectURL(audioUrl);
+				};
+			} else {
+				setIsSpeaking(false);
+			}
 		} catch (err) {
-			showError("Error in speech handling."); console.error("TTS error:", err); setIsSpeaking(false);
+			showError("Error in speech handling.");
+			console.error("TTS error:", err);
+			setIsSpeaking(false);
 		}
 	};
 
@@ -252,7 +280,8 @@ export default function Home() {
 			setIsRecording(false);
 		} else {
 			if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-				showError("Audio recording is not supported by your browser."); return;
+				showError("Audio recording is not supported by your browser.");
+				return;
 			}
 
 			for (const format of PREFERRED_AUDIO_FORMATS) {
@@ -264,48 +293,63 @@ export default function Home() {
 			}
 
 			try {
-				const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+				const stream = await navigator.mediaDevices.getUserMedia({
+					audio: true,
+				});
 				setIsRecording(true);
 				audioChunks = [];
-				mediaRecorder = new MediaRecorder(stream, { mimeType: selectedAudioFormat });
-				mediaRecorder.ondataavailable = event => { audioChunks.push(event.data); };
+				mediaRecorder = new MediaRecorder(stream, {
+					mimeType: selectedAudioFormat,
+				});
+				mediaRecorder.ondataavailable = (event) => {
+					audioChunks.push(event.data);
+				};
 				mediaRecorder.onstop = async () => {
 					for (const track of stream.getTracks()) {
 						track.stop();
 					}
-					const audioBlob = new Blob(audioChunks, { type: selectedAudioFormat });
-					
-					if (audioBlob.size === 0) { 
-						showError("No audio recorded. Please try again."); 
+					const audioBlob = new Blob(audioChunks, {
+						type: selectedAudioFormat,
+					});
+
+					if (audioBlob.size === 0) {
+						showError("No audio recorded. Please try again.");
 						setIsTranscribing(false);
-						return; 
+						return;
 					}
-					console.log(`[STT] Recorded audio blob size: ${audioBlob.size}, type: ${audioBlob.type}`);
+					console.log(
+						`[STT] Recorded audio blob size: ${audioBlob.size}, type: ${audioBlob.type}`,
+					);
 
 					setIsTranscribing(true);
 					try {
 						const headers: Record<string, string> = {};
-						if (groqApiKey) headers['x-groq-api-key'] = groqApiKey;
+						if (groqApiKey) headers["x-groq-api-key"] = groqApiKey;
 
-						const response = await fetch('/api/transcribe', {
-							method: 'POST',
-							headers, 
+						const response = await fetch("/api/transcribe", {
+							method: "POST",
+							headers,
 							body: audioBlob,
 						});
 						if (!response.ok) {
 							let errorMsg = "Failed to transcribe audio.";
-							try { 
-								const errorData = await response.json(); 
-								errorMsg = errorData.error || `Transcription API Error: ${response.status}`;
+							try {
+								const errorData = await response.json();
+								errorMsg =
+									errorData.error ||
+									`Transcription API Error: ${response.status}`;
 								if (errorData.message) errorMsg += ` - ${errorData.message}`;
-							} catch (e) { 
+							} catch (e) {
 								errorMsg = `Transcription API Error: ${response.status} - ${await response.text()}`;
 							}
 							showError(errorMsg);
 						} else {
 							const result = await response.json();
 							if (result.transcription) {
-								setInput(prevInput => prevInput + (prevInput ? " " : "") + result.transcription);
+								setInput(
+									(prevInput) =>
+										prevInput + (prevInput ? " " : "") + result.transcription,
+								);
 							} else if (result.error) {
 								showError(result.error);
 							}
@@ -319,7 +363,9 @@ export default function Home() {
 				};
 				mediaRecorder.start();
 			} catch (err) {
-				showError("Could not start recording. Check mic permissions or browser support for selected audio format.");
+				showError(
+					"Could not start recording. Check mic permissions or browser support for selected audio format.",
+				);
 				console.error("Mic access/MediaRecorder error:", err);
 				setIsRecording(false);
 			}
@@ -348,20 +394,21 @@ export default function Home() {
 
 	const handleChatSubmit = (e?: FormEvent<HTMLFormElement>) => {
 		if (e) e.preventDefault();
-		
+
 		// Block submission if edStemApiKey is missing
 		if (!edStemApiKey) {
 			showError("Please add your EdStem API key in settings first.");
 			return;
 		}
-		
+
 		handleSubmit(e);
 	};
 
 	return (
 		<div className="flex h-screen w-screen items-center justify-center relative">
 			<div className="absolute top-4 left-4 font-mono text-sm text-neutral-500 dark:text-neutral-400">
-				Last Sync: {lastSyncedAt ? new Date(lastSyncedAt).toLocaleString() : 'Never'}
+				Last Sync:{" "}
+				{lastSyncedAt ? new Date(lastSyncedAt).toLocaleString() : "Never"}
 			</div>
 
 			<div className="flex flex-col items-center w-full max-w-[500px]">
@@ -386,22 +433,26 @@ export default function Home() {
 						{edStemApiKey && (
 							<div className="relative" ref={dropdownRef}>
 								<button
-									onClick={() => setIsCoursesDropdownOpen(!isCoursesDropdownOpen)}
+									onClick={() =>
+										setIsCoursesDropdownOpen(!isCoursesDropdownOpen)
+									}
 									className={cn(
 										"flex items-center justify-between w-full px-3 py-1.5 text-sm rounded-md",
 										"bg-neutral-300 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200",
-										"hover:bg-neutral-400 dark:hover:bg-neutral-600 transition-colors"
+										"hover:bg-neutral-400 dark:hover:bg-neutral-600 transition-colors",
 									)}
 								>
 									<div className="flex items-center gap-2">
 										<span className="text-xs opacity-70">Course:</span>
 										<span className="truncate max-w-[300px]">
-											{selectedCourse ? `${selectedCourse.code || ''} ${selectedCourse.name || ''}`.trim() : 'Select a course'}
+											{selectedCourse
+												? `${selectedCourse.code || ""} ${selectedCourse.name || ""}`.trim()
+												: "Select a course"}
 										</span>
 									</div>
 									<ChevronDownIcon className="h-4 w-4" />
 								</button>
-								
+
 								{isCoursesDropdownOpen && courses.length > 0 && (
 									<div className="absolute z-10 mt-1 w-full rounded-md shadow-lg bg-white dark:bg-neutral-800 ring-1 ring-black ring-opacity-5 focus:outline-none">
 										<div className="py-1 max-h-48 overflow-auto">
@@ -411,16 +462,18 @@ export default function Home() {
 													className={cn(
 														"flex items-center justify-between w-full px-4 py-2 text-sm",
 														"hover:bg-neutral-200 dark:hover:bg-neutral-700",
-														selectedCourse?.id === course.id 
-															? "bg-neutral-300 dark:bg-neutral-600" 
-															: ""
+														selectedCourse?.id === course.id
+															? "bg-neutral-300 dark:bg-neutral-600"
+															: "",
 													)}
 													onClick={() => {
 														setSelectedCourse(course);
 														setIsCoursesDropdownOpen(false);
 													}}
 												>
-													<span className="truncate">{course.code} {course.name}</span>
+													<span className="truncate">
+														{course.code} {course.name}
+													</span>
 													{selectedCourse?.id === course.id && (
 														<CheckIcon className="h-4 w-4" />
 													)}
@@ -431,17 +484,25 @@ export default function Home() {
 								)}
 							</div>
 						)}
-						
-						<PromptInputWithActions 
+
+						<PromptInputWithActions
 							value={input}
 							onValueChange={setInput}
 							onSubmit={handleChatSubmit}
 							isLoading={isLoading || isTranscribing}
-							onSpeakPress={() => lastAssistantMessage?.content && handleSpeakMessage(lastAssistantMessage.content)}
+							onSpeakPress={() =>
+								lastAssistantMessage?.content &&
+								handleSpeakMessage(lastAssistantMessage.content)
+							}
 							isSpeaking={isSpeaking}
-							speakButtonDisabled={!lastAssistantMessage?.content || isLoading || isSpeaking || isRecording}
+							speakButtonDisabled={
+								!lastAssistantMessage?.content ||
+								isLoading ||
+								isSpeaking ||
+								isRecording
+							}
 							isAutoTTSActive={isAutoTTSActive}
-							onToggleAutoTTS={() => setIsAutoTTSActive(prev => !prev)}
+							onToggleAutoTTS={() => setIsAutoTTSActive((prev) => !prev)}
 							onMicPress={handleMicPress}
 							isRecording={isRecording}
 							micButtonDisabled={isLoading || isSpeaking || isTranscribing}
@@ -460,7 +521,11 @@ export default function Home() {
 												{userQuery.content}
 											</div>
 										)}
-										<Loading tool={isTranscribing ? 'Transcribing...' : currentToolCall} />
+										<Loading
+											tool={
+												isTranscribing ? "Transcribing..." : currentToolCall
+											}
+										/>
 									</div>
 								) : lastAssistantMessage ? (
 									<div className="px-2 min-h-12">
@@ -532,10 +597,12 @@ const Loading = ({ tool }: { tool?: string }) => {
 		understandQuery: "Understanding query",
 		Transcribing: "Transcribing...",
 	};
-	const defaultToolName = tool === 'Transcribing...' ? '' : "Thinking";
+	const defaultToolName = tool === "Transcribing..." ? "" : "Thinking";
 
 	const displayName =
-		tool && toolDisplayNames[tool] ? toolDisplayNames[tool] : (tool || defaultToolName);
+		tool && toolDisplayNames[tool]
+			? toolDisplayNames[tool]
+			: tool || defaultToolName;
 
 	return (
 		<AnimatePresence mode="wait">
@@ -551,7 +618,8 @@ const Loading = ({ tool }: { tool?: string }) => {
 						<LoadingSpinner />
 					</div>
 					<div className="text-neutral-500 dark:text-neutral-400 text-sm">
-						{displayName}{displayName ? "..." : ""}
+						{displayName}
+						{displayName ? "..." : ""}
 					</div>
 				</div>
 			</motion.div>

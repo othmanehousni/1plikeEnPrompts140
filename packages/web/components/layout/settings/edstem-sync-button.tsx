@@ -7,7 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 
 export function EdStemSyncButton() {
   const [isSyncing, setIsSyncing] = useState(false);
-  const { edStemApiKey } = useUserPreferences();
+  const { edStemApiKey, togetherApiKey } = useUserPreferences();
   const { setLastSyncedAt, setIsSyncing: setSyncingState, setError } = useSyncStatus();
   const { error: showError, toast } = useToast();
 
@@ -63,12 +63,18 @@ export function EdStemSyncButton() {
       
       console.log("Starting EdStem sync...");
       
+      // Include Together API key if available for generating embeddings
+      const payload = { 
+        apiKey: edStemApiKey,
+        ...(togetherApiKey ? { togetherApiKey } : {})
+      };
+      
       const response = await fetch("/api/edstem/sync", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ apiKey: edStemApiKey }),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
@@ -96,7 +102,8 @@ export function EdStemSyncButton() {
       
       // Show success message with course count if available
       if (data.count !== undefined) {
-        showError(`Success: Successfully synced ${data.count} courses`);
+        const embedMessage = data.embeddings ? " with vector embeddings" : "";
+        showError(`Success: Successfully synced ${data.count} courses${embedMessage}`);
       }
     } catch (err) {
       console.error("Sync error:", err);

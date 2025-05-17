@@ -16,6 +16,11 @@ type UserPreferences = {
   setGroqApiKey: (apiKey: string) => void
   clearGroqApiKey: () => void
   hasGroqApiKey: () => boolean
+
+  // For passing transcribed text between components
+  transcribedText: string | null
+  setTranscribedText: (text: string) => void
+  clearTranscribedText: () => void
 }
 
 export const useUserPreferences = create<UserPreferences>()(
@@ -61,6 +66,17 @@ export const useUserPreferences = create<UserPreferences>()(
       
       hasGroqApiKey: () => {
         return !!get().groqApiKey
+      },
+
+      // Transcribed text state
+      transcribedText: null,
+      
+      setTranscribedText: (text: string) => {
+        set({ transcribedText: text })
+      },
+      
+      clearTranscribedText: () => {
+        set({ transcribedText: null })
       }
     }),
     {

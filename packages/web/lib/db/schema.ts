@@ -6,7 +6,8 @@ import {
 	text,
 	timestamp,
 	jsonb,
-	varchar // if you need specific length strings, otherwise text is fine
+	varchar, // if you need specific length strings, otherwise text is fine
+	vector
 } from "drizzle-orm/pg-core";
 
 // Courses table
@@ -35,6 +36,7 @@ export const threads = pgTable("threads", {
 	createdAt: timestamp("created_at").defaultNow(), // Use timestamp, defaultNow is fine for pg
 	updatedAt: timestamp("updated_at").defaultNow(), // Use timestamp, can also use .onUpdateNow()
 	images: jsonb("images").default('[]'),
+	embedding: vector("embedding", { dimensions: 1024 }),
 });
 
 // Answers/replies to threads
@@ -52,6 +54,7 @@ export const answers = pgTable("answers", {
 	isResolved: boolean("is_resolved").default(false),
 	createdAt: timestamp("created_at").defaultNow(),
 	updatedAt: timestamp("updated_at").defaultNow(),
+	embedding: vector("embedding", { dimensions: 1024 }),
 });
 
 // Relations
