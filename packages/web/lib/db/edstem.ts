@@ -83,9 +83,25 @@ async function syncAnswersForThread(threadId: number, client: EDClient, together
 	
 	let edAnswersFromAPI: EDListedAnswer[] = []; 
 	try {
-		const threadData = await client.fetchThread(threadId);
+		// Add timeout protection for API calls
+		const threadDataPromise = client.fetchThread(threadId);
+		const timeoutPromise = new Promise<null>((_, reject) => 
+			setTimeout(() => reject(new Error("Thread fetch timeout")), 30000)
+		);
+		
+		let threadData;
+		try {
+			threadData = await Promise.race([threadDataPromise, timeoutPromise]) as any;
+			if (!threadData || !threadData.answers) {
+				console.error(`[EDSTEM.ts] ⚠️ Invalid thread data received for ${threadId}`);
+				return { threadId, answersInserted: 0, answersUpdated: 0, answersErrored: 1 };
+			}
+		} catch (timeoutError) {
+			console.error(`[EDSTEM.ts] ⚠️ Timeout fetching thread ${threadId}:`, timeoutError);
+			return { threadId, answersInserted: 0, answersUpdated: 0, answersErrored: 1 };
+		}
 
-		edAnswersFromAPI = threadData.answers.map(answer => ({
+		edAnswersFromAPI = threadData.answers.map((answer: any) => ({
 			id: answer.id,
 			parent_id: answer.parent_id,
 			message: answer.content || answer.document || null,
@@ -109,12 +125,25 @@ async function syncAnswersForThread(threadId: number, client: EDClient, together
 		let answersInserted = 0;
 		let answersUpdated = 0;
 		let answersErrored = 0;
+		
+		// Fetch all existing answers in one batch query
+		const answerIds = edAnswersFromAPI.map(a => a.id);
+		const existingAnswersQuery = await db.query.answers.findMany({
+			where: eq(answers.courseId, threadData.course_id),
+			columns: {
+				id: true,
+				updatedAt: true
+			}
+		});
+		
+		// Create a Map for faster lookups
+		const existingAnswersMap = new Map(
+			existingAnswersQuery.map(answer => [answer.id, answer])
+		);
 
 		for (const edAnswer of edAnswersFromAPI) { // edAnswer is EDListedAnswer
 			try {
-				const existingAnswer = await db.query.answers.findFirst({
-					where: eq(answers.id, edAnswer.id),
-				});
+				const existingAnswer = existingAnswersMap.get(edAnswer.id);
 
         // Prepare answer data
 				const answerData = {
@@ -141,7 +170,24 @@ async function syncAnswersForThread(threadId: number, client: EDClient, together
           }
           
           const textForEmbedding = prepareAnswerTextForEmbedding(edAnswer.message as string);
-          embedding = await generateEmbeddings(textForEmbedding, togetherApiKey);
+          
+          // Add timeout protection for embedding generation
+          const embeddingPromise = generateEmbeddings(textForEmbedding, togetherApiKey);
+          const timeoutPromise = new Promise<null>((_, reject) => 
+            setTimeout(() => reject(new Error("Embedding generation timeout")), 20000)
+          );
+          
+          try {
+            embedding = await Promise.race([embeddingPromise, timeoutPromise]);
+            
+            // Log uniquement pour thread spécial
+            if (isSpecialThread && embedding) {
+              console.log(`[EDSTEM.ts] ✅ Generated embedding for answer ${edAnswer.id} in thread #182914`);
+            }
+          } catch (embeddingError) {
+            console.error(`[EDSTEM.ts] ⚠️ Embedding generation failed for answer ${edAnswer.id}:`, embeddingError);
+            // Continue without embedding rather than failing the whole sync
+          }
         }
 
 				if (existingAnswer) {
@@ -192,6 +238,7 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, courseNa
 	let threadsInserted = 0;
 	let threadsUpdated = 0;
 	let threadsErrored = 0;
+	let shouldContinueFetching = true;
 
 	try {
 		// Vérifier la connexion à la base de données en comptant les threads existants
@@ -202,10 +249,26 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, courseNa
 			console.error(`[EDSTEM.ts] ❌ Erreur lors de la vérification des threads existants:`, dbError);
 		}
 		
-		// Fetch all pages of threads using pagination
-		while (hasMorePages) {
+		// Create a cache for thread data to avoid repeated DB queries
+		const threadCache = new Map();
+		
+		// Fetch and process pages of threads one by one, with early termination
+		while (hasMorePages && shouldContinueFetching) {
 			console.log(`[EDSTEM.ts] 📄 Downloading page ${currentPage} for course ${courseName || courseId}...`);
-			const pageThreads = await client.getThreadsForCourse(courseId, { page: currentPage, limit: 30 });
+			
+			// Add timeout protection for API calls
+			const pageThreadsPromise = client.getThreadsForCourse(courseId, { page: currentPage, limit: 30 });
+			const timeoutPromise = new Promise<null>((_, reject) => 
+				setTimeout(() => reject(new Error("API timeout")), 30000)
+			);
+			
+			let pageThreads;
+			try {
+				pageThreads = await Promise.race([pageThreadsPromise, timeoutPromise]) as EDListedThread[];
+			} catch (timeoutError) {
+				console.error(`[EDSTEM.ts] ⚠️ Timeout fetching threads for course ${courseName || courseId} (page ${currentPage}):`, timeoutError);
+				break; // Exit the loop on timeout
+			}
 			
 			if (!pageThreads || pageThreads.length === 0) {
 				console.log(`[EDSTEM.ts] ℹ️ No threads found for course ${courseName || courseId} on page ${currentPage}`);
@@ -213,7 +276,61 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, courseNa
 			}
 			
 			console.log(`[EDSTEM.ts] 📥 Received ${pageThreads.length} threads for course ${courseName || courseId} (page ${currentPage})`);
-			edThreadsFromAPI = [...edThreadsFromAPI, ...pageThreads];
+			
+			// Traiter immédiatement cette page pour voir si on doit continuer
+			let pageHasChanges = false;
+			let pageHasErrors = false;
+			
+			// Préparer les requêtes en batch pour vérifier l'existence des threads
+			const existingThreadsQuery = await db.query.threads.findMany({
+				where: eq(threads.courseId, courseId),
+				columns: {
+					id: true,
+					updatedAt: true
+				}
+			});
+			
+			// Créer un Map pour accélérer les recherches
+			const existingThreadsMap = new Map(
+				existingThreadsQuery.map(thread => [thread.id, thread])
+			);
+			
+			// Vérification rapide pour voir si quelque chose a changé sur cette page
+			for (const thread of pageThreads) {
+				try {
+					// Vérifier si ce thread existe déjà et est à jour
+					const existingThread = existingThreadsMap.get(thread.id);
+					
+					// Add to our cache for later use
+					threadCache.set(thread.id, existingThread || null);
+					
+					const needsUpdate = !existingThread || 
+						(existingThread.updatedAt && 
+						new Date(thread.updated_at).getTime() > existingThread.updatedAt.getTime());
+					
+					if (needsUpdate) {
+						pageHasChanges = true;
+						// Don't break early - we want the full set of thread IDs in our cache
+					}
+				} catch (error) {
+					pageHasErrors = true;
+					console.error(`[EDSTEM.ts] Erreur lors de la vérification du thread ${thread.id}:`, error);
+				}
+			}
+			
+			// Si aucun thread de cette page n'a changé et qu'il n'y a pas eu d'erreurs,
+			// on peut arrêter de récupérer les pages suivantes (optimisation)
+			if (!pageHasChanges && !pageHasErrors) {
+				console.log(`[EDSTEM.ts] 🛑 Optimisation: Aucun thread modifié sur la page ${currentPage} - arrêt de la synchronisation.`);
+				shouldContinueFetching = false;
+				// We don't need to process this page any further
+				hasMorePages = pageThreads.length === 30;
+				currentPage++;
+				continue;
+			} else {
+				// Sinon on ajoute cette page aux threads à traiter et on continue
+				edThreadsFromAPI = [...edThreadsFromAPI, ...pageThreads];
+			}
 			
 			// If we got fewer threads than the limit, there are no more pages
 			hasMorePages = pageThreads.length === 30;
@@ -244,10 +361,18 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, courseNa
 			}
 			
 			try {
-				// Vérifier si le thread existe déjà dans la base de données
-				const existingThread = await db.query.threads.findFirst({
-					where: eq(threads.id, edThread.id),
-				});
+				// Check cache first before querying DB
+				let existingThread = threadCache.get(edThread.id);
+				
+				// If not in cache, check DB
+				if (existingThread === undefined) {
+					existingThread = await db.query.threads.findFirst({
+						where: eq(threads.id, edThread.id),
+					});
+					
+					// Store in cache for future reference
+					threadCache.set(edThread.id, existingThread);
+				}
 				
 				// Debug uniquement pour le thread spécial ou si verbose logging est activé
 				if (edThread.id === 182914) {
@@ -286,11 +411,23 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, courseNa
             edThread.category,
             edThread.subcategory
           );
-          embedding = await generateEmbeddings(textForEmbedding, togetherApiKey);
           
-          // Log uniquement pour thread spécial
-          if (edThread.id === 182914) {
-            console.log(`[EDSTEM.ts] ✅ Generated embedding for thread #182914`);
+          // Add timeout protection for embedding generation
+          const embeddingPromise = generateEmbeddings(textForEmbedding, togetherApiKey);
+          const timeoutPromise = new Promise<null>((_, reject) => 
+            setTimeout(() => reject(new Error("Embedding generation timeout")), 20000)
+          );
+          
+          try {
+            embedding = await Promise.race([embeddingPromise, timeoutPromise]);
+            
+            // Log uniquement pour thread spécial
+            if (edThread.id === 182914 && embedding) {
+              console.log(`[EDSTEM.ts] ✅ Generated embedding for thread #182914`);
+            }
+          } catch (embeddingError) {
+            console.error(`[EDSTEM.ts] ⚠️ Embedding generation failed for thread ${edThread.id}:`, embeddingError);
+            // Continue without embedding rather than failing the whole sync
           }
         }
 
