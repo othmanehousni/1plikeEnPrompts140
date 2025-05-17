@@ -1,18 +1,15 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef, type FormEvent } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { useChat } from "@ai-sdk/react";
-import type { Message } from "ai";
-import { PromptInputWithActions } from "@/components/chat/input";
-import { SettingsButton } from "@/components/layout/settings/settings-button";
+import { useState, useEffect, useRef } from "react";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { ToastContainer } from "@/components/ui/toast";
 import { useUserPreferences } from "@/lib/stores/user-preferences";
 import { useSyncStatus } from "@/lib/stores/sync-status";
 import type { EDCourse } from "@/types/schema/ed.schema";
-import { CheckIcon, ChevronDownIcon } from "@/components/icons";
+import { SettingsButton } from "@/components/layout/settings/settings-button";
+import Chat from "@/components/chat/chat";
 
 // Helper for STT
 let mediaRecorder: MediaRecorder | null = null;
@@ -22,13 +19,12 @@ const PREFERRED_AUDIO_FORMATS = [
 	"audio/webm", // Webm is widely supported
 	"audio/mp4", // Safari often supports this
 	"audio/wav", // Raw PCM data
-	"audio/ogg", // Firefox often supports this
+	"audio/ogg", // Firefox often supports thiso
 ];
 let selectedAudioFormat =
 	PREFERRED_AUDIO_FORMATS[PREFERRED_AUDIO_FORMATS.length - 1]; // Default to last one
 
 export default function Home() {
-	const [toolCall, setToolCall] = useState<string>();
 	const { toasts, error: showError, dismiss } = useToast();
 	const { togetherApiKey, groqApiKey, edStemApiKey } = useUserPreferences();
 	const { lastSyncedAt } = useSyncStatus();
@@ -46,9 +42,8 @@ export default function Home() {
 
 	// ED Course Selection State
 	const [courses, setCourses] = useState<EDCourse[]>([]);
-	const [selectedCourse, setSelectedCourse] = useState<EDCourse | null>(null);
-	const [isCoursesDropdownOpen, setIsCoursesDropdownOpen] = useState(false);
-	const dropdownRef = useRef<HTMLDivElement>(null);
+	const [isExpanded, setIsExpanded] = useState<boolean>(false);
+	const [hasMessages, setHasMessages] = useState<boolean>(false);
 
 	useEffect(() => {
 		setMounted(true);
@@ -84,9 +79,6 @@ export default function Home() {
 						const data = await response.json();
 						if (data.courses && Array.isArray(data.courses)) {
 							setCourses(data.courses);
-							if (data.courses.length > 0) {
-								setSelectedCourse(data.courses[0]);
-							}
 						}
 					}
 				} catch (error) {
@@ -98,82 +90,11 @@ export default function Home() {
 		}
 	}, [edStemApiKey]);
 
-	// Handle clicking outside the dropdown to close it
-	useEffect(() => {
-		function handleClickOutside(event: MouseEvent) {
-			if (
-				dropdownRef.current &&
-				!dropdownRef.current.contains(event.target as Node)
-			) {
-				setIsCoursesDropdownOpen(false);
-			}
-		}
-
-		document.addEventListener("mousedown", handleClickOutside);
-		return () => {
-			document.removeEventListener("mousedown", handleClickOutside);
-		};
-	}, []);
-
 	useEffect(() => {
 		if (!mounted) return;
 		const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
 		return () => clearInterval(timer);
 	}, [mounted]);
-
-	const { messages, input, setInput, handleSubmit, isLoading, error, append } =
-		useChat({
-			headers: {
-				"x-together-api-key": togetherApiKey || "",
-				"x-groq-api-key": groqApiKey || "",
-			},
-			body: {
-				selectedCourseId: selectedCourse?.id,
-			},
-			onToolCall({ toolCall }) {
-				setToolCall(toolCall.toolName);
-			},
-			onError: (err) => {
-				console.error("Chat error:", err);
-				try {
-					if (typeof err === "object" && err.message) {
-						const errorData = JSON.parse(err.message);
-						if (errorData.error) {
-							showError(errorData.error);
-							return;
-						}
-					}
-				} catch (e) {
-					// Not a JSON error
-				}
-				if (err.message?.includes("rate limit")) {
-					showError("You've been rate limited, please try again later!");
-				} else if (err.message?.includes("api key")) {
-					showError(
-						"Missing API key. Please add your TogetherAI API key in settings.",
-					);
-				} else if (err.message?.toLowerCase().includes("failed to fetch")) {
-					showError(
-						"Network error: Failed to connect. Please check your connection and try again.",
-					);
-				} else if (err.message) {
-					showError(err.message);
-				} else {
-					showError("An unknown error occurred. Please try again later!");
-				}
-			},
-			onFinish: (message) => {
-				if (
-					message.role === "assistant" &&
-					isAutoTTSActive &&
-					message.content
-				) {
-					handleSpeakMessage(message.content);
-				}
-			},
-		});
-
-	const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
 	useEffect(() => {
 		if (mounted) {
@@ -189,36 +110,6 @@ export default function Home() {
 			}
 		}
 	}, [togetherApiKey, groqApiKey, edStemApiKey, showError, mounted]);
-
-	useEffect(() => {
-		if (messages.length > 0) setIsExpanded(true);
-		else setIsExpanded(false);
-	}, [messages]);
-
-	const currentToolCall = useMemo(() => {
-		const tools = messages?.slice(-1)[0]?.toolInvocations;
-		if (tools && toolCall === tools[0]?.toolName) {
-			return tools[0].toolName;
-		}
-		return undefined;
-	}, [toolCall, messages]);
-
-	const awaitingResponse = useMemo(() => {
-		if (
-			isLoading &&
-			currentToolCall === undefined &&
-			messages.slice(-1)[0]?.role === "user"
-		) {
-			return true;
-		}
-		return false;
-	}, [isLoading, currentToolCall, messages]);
-
-	const userQuery = messages.filter((m) => m.role === "user").slice(-1)[0];
-
-	const lastAssistantMessage = messages
-		.filter((m) => m.role === "assistant")
-		.slice(-1)[0];
 
 	const handleSpeakMessage = async (textToSpeak: string) => {
 		if (!textToSpeak || isSpeaking) return;
@@ -346,9 +237,10 @@ export default function Home() {
 						} else {
 							const result = await response.json();
 							if (result.transcription) {
-								setInput(
-									(prevInput) =>
-										prevInput + (prevInput ? " " : "") + result.transcription,
+								// This is handled via the Chat component now
+								// setInput((prevInput) => prevInput + (prevInput ? " " : "") + result.transcription);
+								showError(
+									"Speech transcribed but input updating not implemented in this version",
 								);
 							} else if (result.error) {
 								showError(result.error);
@@ -372,16 +264,16 @@ export default function Home() {
 		}
 	};
 
-	const formattedTime = useMemo(() => {
+	const formattedTime = (() => {
 		if (!mounted) return "";
 		const date = new Date(currentTime);
 		const hours = date.getHours().toString().padStart(2, "0");
 		const minutes = date.getMinutes().toString().padStart(2, "0");
 		const seconds = date.getSeconds().toString().padStart(2, "0");
 		return `${hours}:${minutes}:${seconds}`;
-	}, [currentTime, mounted]);
+	})();
 
-	const formattedDate = useMemo(() => {
+	const formattedDate = (() => {
 		if (!mounted) return "";
 		const date = new Date(currentTime);
 		const options: Intl.DateTimeFormatOptions = {
@@ -390,19 +282,7 @@ export default function Home() {
 			year: "numeric",
 		};
 		return date.toLocaleDateString("en-US", options);
-	}, [currentTime, mounted]);
-
-	const handleChatSubmit = (e?: FormEvent<HTMLFormElement>) => {
-		if (e) e.preventDefault();
-
-		// Block submission if edStemApiKey is missing
-		if (!edStemApiKey) {
-			showError("Please add your EdStem API key in settings first.");
-			return;
-		}
-
-		handleSubmit(e);
-	};
+	})();
 
 	return (
 		<div className="flex h-screen w-screen items-center justify-center relative">
@@ -429,116 +309,18 @@ export default function Home() {
 					)}
 				>
 					<div className="flex flex-col w-full justify-between gap-2">
-						{/* Course Selection Dropdown */}
-						{edStemApiKey && (
-							<div className="relative" ref={dropdownRef}>
-								<button
-									onClick={() =>
-										setIsCoursesDropdownOpen(!isCoursesDropdownOpen)
-									}
-									className={cn(
-										"flex items-center justify-between w-full px-3 py-1.5 text-sm rounded-md",
-										"bg-neutral-300 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200",
-										"hover:bg-neutral-400 dark:hover:bg-neutral-600 transition-colors",
-									)}
-								>
-									<div className="flex items-center gap-2">
-										<span className="text-xs opacity-70">Course:</span>
-										<span className="truncate max-w-[300px]">
-											{selectedCourse
-												? `${selectedCourse.code || ""} ${selectedCourse.name || ""}`.trim()
-												: "Select a course"}
-										</span>
-									</div>
-									<ChevronDownIcon className="h-4 w-4" />
-								</button>
-
-								{isCoursesDropdownOpen && courses.length > 0 && (
-									<div className="absolute z-10 mt-1 w-full rounded-md shadow-lg bg-white dark:bg-neutral-800 ring-1 ring-black ring-opacity-5 focus:outline-none">
-										<div className="py-1 max-h-48 overflow-auto">
-											{courses.map((course) => (
-												<button
-													key={course.id}
-													className={cn(
-														"flex items-center justify-between w-full px-4 py-2 text-sm",
-														"hover:bg-neutral-200 dark:hover:bg-neutral-700",
-														selectedCourse?.id === course.id
-															? "bg-neutral-300 dark:bg-neutral-600"
-															: "",
-													)}
-													onClick={() => {
-														setSelectedCourse(course);
-														setIsCoursesDropdownOpen(false);
-													}}
-												>
-													<span className="truncate">
-														{course.code} {course.name}
-													</span>
-													{selectedCourse?.id === course.id && (
-														<CheckIcon className="h-4 w-4" />
-													)}
-												</button>
-											))}
-										</div>
-									</div>
-								)}
-							</div>
-						)}
-
-						<PromptInputWithActions
-							value={input}
-							onValueChange={setInput}
-							onSubmit={handleChatSubmit}
-							isLoading={isLoading || isTranscribing}
-							onSpeakPress={() =>
-								lastAssistantMessage?.content &&
-								handleSpeakMessage(lastAssistantMessage.content)
-							}
-							isSpeaking={isSpeaking}
-							speakButtonDisabled={
-								!lastAssistantMessage?.content ||
-								isLoading ||
-								isSpeaking ||
-								isRecording
-							}
+						<Chat
+							edStemApiKey={edStemApiKey || undefined}
+							togetherApiKey={togetherApiKey || undefined}
+							groqApiKey={groqApiKey || undefined}
+							courses={courses}
+							onError={showError}
+							onSpeakMessage={handleSpeakMessage}
 							isAutoTTSActive={isAutoTTSActive}
-							onToggleAutoTTS={() => setIsAutoTTSActive((prev) => !prev)}
-							onMicPress={handleMicPress}
-							isRecording={isRecording}
-							micButtonDisabled={isLoading || isSpeaking || isTranscribing}
+							isSpeaking={isSpeaking}
+							onToggleAutoTTS={() => setIsAutoTTSActive(prev => !prev)}
+							onMessagesChange={setIsExpanded}
 						/>
-						<motion.div
-							transition={{
-								type: "spring",
-							}}
-							className="min-h-fit flex flex-col gap-2"
-						>
-							<AnimatePresence>
-								{awaitingResponse || currentToolCall || isTranscribing ? (
-									<div className="px-2 min-h-12">
-										{userQuery && !isTranscribing && (
-											<div className="dark:text-neutral-400 text-neutral-500 text-sm w-fit mb-1">
-												{userQuery.content}
-											</div>
-										)}
-										<Loading
-											tool={
-												isTranscribing ? "Transcribing..." : currentToolCall
-											}
-										/>
-									</div>
-								) : lastAssistantMessage ? (
-									<div className="px-2 min-h-12">
-										{userQuery && (
-											<div className="dark:text-neutral-400 text-neutral-500 text-sm w-fit mb-1">
-												{userQuery.content}
-											</div>
-										)}
-										<AssistantMessage message={lastAssistantMessage} />
-									</div>
-								) : null}
-							</AnimatePresence>
-						</motion.div>
 					</div>
 				</motion.div>
 				<SettingsButton />
@@ -559,11 +341,7 @@ export default function Home() {
 				</div>
 			)}
 
-			{/* The audio element for playing speech. Hidden but accessible.
-				Note: We're adding a track element for accessibility compliance,
-				though for dynamically generated audio content, real-time captions
-				would require additional speech-to-text processing.
-			*/}
+			{/* The audio element for playing speech. Hidden but accessible. */}
 			<audio ref={audioPlayerRef} style={{ display: "none" }}>
 				<track kind="captions" label="English captions" />
 			</audio>
@@ -571,75 +349,3 @@ export default function Home() {
 		</div>
 	);
 }
-
-const AssistantMessage = ({ message }: { message: Message }) => {
-	if (!message) return null;
-
-	return (
-		<AnimatePresence mode="wait">
-			<motion.div
-				key={message.id}
-				initial={{ opacity: 0 }}
-				animate={{ opacity: 1 }}
-				exit={{ opacity: 0 }}
-				className="whitespace-pre-wrap font-mono text-sm text-neutral-800 dark:text-neutral-200 overflow-hidden"
-			>
-				{message.content}
-			</motion.div>
-		</AnimatePresence>
-	);
-};
-
-const Loading = ({ tool }: { tool?: string }) => {
-	const toolDisplayNames: Record<string, string> = {
-		getInformation: "Getting information",
-		addResource: "Adding information",
-		understandQuery: "Understanding query",
-		Transcribing: "Transcribing...",
-	};
-	const defaultToolName = tool === "Transcribing..." ? "" : "Thinking";
-
-	const displayName =
-		tool && toolDisplayNames[tool]
-			? toolDisplayNames[tool]
-			: tool || defaultToolName;
-
-	return (
-		<AnimatePresence mode="wait">
-			<motion.div
-				initial={{ opacity: 0 }}
-				animate={{ opacity: 1 }}
-				exit={{ opacity: 0 }}
-				transition={{ type: "spring" }}
-				className="overflow-hidden flex justify-start items-center"
-			>
-				<div className="flex flex-row gap-2 items-center">
-					<div className="animate-spin dark:text-neutral-400 text-neutral-500">
-						<LoadingSpinner />
-					</div>
-					<div className="text-neutral-500 dark:text-neutral-400 text-sm">
-						{displayName}
-						{displayName ? "..." : ""}
-					</div>
-				</div>
-			</motion.div>
-		</AnimatePresence>
-	);
-};
-
-const LoadingSpinner = () => (
-	<svg
-		xmlns="http://www.w3.org/2000/svg"
-		width="18"
-		height="18"
-		viewBox="0 0 24 24"
-		fill="none"
-		stroke="currentColor"
-		strokeWidth="2"
-		strokeLinecap="round"
-		strokeLinejoin="round"
-		aria-hidden="true"
-	>
-		<path d="M21 12a9 9 0 1 1-6.219-8.56" />
-	</svg>
-);
