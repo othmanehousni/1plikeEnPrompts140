@@ -1,9 +1,16 @@
 export default {
 	manifest: {
-		name: "ED File Finder",
+		name: "Ask ED Token Extractor",
 		version: "0.1.0",
-		description: "A better Ed Search chrome extension.",
+		description: "Extracts your Ed token for use with Ask ED.",
 		author: "1plikéEnPrompts140",
+		content_scripts: [
+			{
+				matches: ["*://*.edstem.org/*", "http://localhost/*", "*://*.localhost/*", "*://*.ask-ed.ch/*", "*://ask-ed.ch/*"],
+				js: ["src/content.ts"],
+				run_at: "document_end"
+			}
+		]
 	},
 	// Prevent filenames starting with underscores
 	build: {
