@@ -1,6 +1,6 @@
 "use client";
 
-import { defaultModel, type modelID } from "@/ai/providers";
+import { defaultModel, getProviderOptions, type modelID } from "@/ai/providers";
 import { Messages } from "@/components/chat/messages";
 import { Textarea } from "@/components/chat/textarea";
 import { useChat } from "@ai-sdk/react";
@@ -10,13 +10,15 @@ import { useUserPreferences } from "@/lib/stores/user-preferences";
 
 export default function Chat() {
 	const [selectedModel, setSelectedModel] = useState<modelID>(defaultModel);
-	
+
 	const { messages, input, handleInputChange, handleSubmit, status, stop } =
 		useChat({
 			maxSteps: 5,
 			body: {
 				selectedModel,
 			},
+			// @ts-expect-error - providerOptions is supported but types may be outdated
+			providerOptions: getProviderOptions(selectedModel),
 			onError: (error) => {
 				toast.error(
 					error.message.length > 0
@@ -34,7 +36,7 @@ export default function Chat() {
 			<Messages messages={messages} isLoading={isLoading} status={status} />
 			<form
 				onSubmit={handleSubmit}
-				className="pb-8 bg-white dark:bg-black w-full max-w-xl mx-auto px-4 sm:px-0"
+				className="pb-8 w-full max-w-xl mx-auto px-4 sm:px-0"
 			>
 				<Textarea
 					selectedModel={selectedModel}

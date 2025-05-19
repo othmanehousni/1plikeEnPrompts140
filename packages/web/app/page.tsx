@@ -262,11 +262,11 @@ export default function Home() {
 				<ThemeToggle />
 			</div>
 
-			<div className="flex flex-col items-center w-full max-w-[500px]">
+			<div className="flex flex-col items-center w-full max-w-[800px]">
 				<motion.div
 					animate={{
 						minHeight: isExpanded ? 200 : 0,
-						width: isExpanded ? 800 : 500,
+						width: isExpanded ? 800 : 800,
 						padding: isExpanded ? 12 : 0,
 					}}
 					transition={{

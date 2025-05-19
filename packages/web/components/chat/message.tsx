@@ -70,6 +70,7 @@ export function ReasoningMessagePart({
 				<div className="flex flex-row gap-2 items-center">
 					<div className="font-medium text-sm">Reasoned for a few seconds</div>
 					<button
+						type="button"
 						className={cn(
 							"cursor-pointer rounded-full dark:hover:bg-zinc-800 hover:bg-zinc-200",
 							{
@@ -102,7 +103,7 @@ export function ReasoningMessagePart({
 					>
 						{part.details.map((detail, detailIndex) =>
 							detail.type === "text" ? (
-								<Markdown key={detailIndex}>{detail.text}</Markdown>
+								<div key={`reasoning-detail-${detailIndex}`}>{detail.text}</div>
 							) : (
 								"<redacted>"
 							),
@@ -118,6 +119,7 @@ const PurePreviewMessage = ({
 	message,
 	isLatestMessage,
 	status,
+	isLoading,
 }: {
 	message: TMessage;
 	isLoading: boolean;
@@ -139,14 +141,6 @@ const PurePreviewMessage = ({
 						"group-data-[role=user]/message:w-fit",
 					)}
 				>
-					{message.role === "assistant" && (
-						<div className="size-8 flex items-center rounded-full justify-center ring-1 shrink-0 ring-border bg-background">
-							<div className="">
-								<SparklesIcon size={14} />
-							</div>
-						</div>
-					)}
-
 					<div className="flex flex-col w-full space-y-4">
 						{message.parts?.map((part, i) => {
 							switch (part.type) {
@@ -160,15 +154,15 @@ const PurePreviewMessage = ({
 										>
 											<div
 												className={cn("flex flex-col gap-4", {
-													"bg-secondary text-secondary-foreground px-3 py-2 rounded-tl-xl rounded-tr-xl rounded-bl-xl":
+													"bg-secondary text-secondary-foreground px-3 py-2 rounded-2xl":
 														message.role === "user",
 												})}
 											>
-												<Markdown>{part.text}</Markdown>
+												<div>{part.text}</div>
 											</div>
 										</motion.div>
 									);
-								case "tool-invocation":
+								case "tool-invocation": {
 									const { toolName, state } = part.toolInvocation;
 
 									return (
@@ -204,10 +198,11 @@ const PurePreviewMessage = ({
 											</div>
 										</motion.div>
 									);
+								}
 								case "reasoning":
 									return (
 										<ReasoningMessagePart
-											key={`message-${message.id}-${i}`}
+											key={`message-${message.id}-reasoning-${i}`}
 											// @ts-expect-error part
 											part={part}
 											isReasoning={

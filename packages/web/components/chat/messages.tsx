@@ -1,6 +1,7 @@
 import type { Message as TMessage } from "ai";
 import { Message } from "./message";
 import { useScrollToBottom } from "@/lib/hooks/use-scroll-to-bottom";
+import React from "react";
 
 export const Messages = ({
   messages,
@@ -18,10 +19,10 @@ export const Messages = ({
       ref={containerRef}
     >
       <div className="max-w-xl mx-auto pt-8">
-        {messages.map((m, i) => (
+        {messages.map((m) => (
           <Message
-            key={i}
-            isLatestMessage={i === messages.length - 1}
+            key={m.id || `message-${m.role}-${m.content}`}
+            isLatestMessage={m === messages[messages.length - 1]}
             isLoading={isLoading}
             message={m}
             status={status}
