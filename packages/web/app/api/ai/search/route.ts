@@ -6,7 +6,8 @@ import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
 	try {
-		const { query, courseId, limit = 5, togetherApiKey } = await req.json();
+		const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+		const { query, courseId, limit = 5 } = await req.json();
 
 		// Add debug logging
 		console.log("[SEARCH_API] Request parameters:", {
@@ -14,7 +15,6 @@ export async function POST(req: Request) {
 			courseId,
 			courseIdType: typeof courseId,
 			limit,
-			hasApiKey: !!togetherApiKey,
 		});
 
 		if (!query) {
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
 			);
 		}
 
-		if (!togetherApiKey) {
+		if (!OPENAI_API_KEY) {
 			return NextResponse.json(
 				{ error: "API key is required for generating embeddings" },
 				{ status: 400 },
@@ -54,7 +54,7 @@ export async function POST(req: Request) {
 		}
 
 		// Generate embeddings for the search query
-		const queryEmbedding = await generateEmbeddings(query, togetherApiKey);
+		const queryEmbedding = await generateEmbeddings(query, OPENAI_API_KEY);
 
 		if (!queryEmbedding || queryEmbedding.length === 0) {
 			return NextResponse.json(

@@ -10,14 +10,9 @@ import { Button } from "@/components/ui/button";
 import {
 	ArrowUp,
 	Loader2,
-	Mic,
-	MicOff,
 	Paperclip,
 	Square,
-	Volume2,
-	VolumeX,
 	X,
-	Settings,
 } from "lucide-react";
 import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 
@@ -27,20 +22,6 @@ interface PromptInputWithActionsProps {
 	onValueChange: (value: string) => void;
 	onSubmit: (e?: FormEvent<HTMLFormElement>) => void;
 	isLoading: boolean;
-	// Props for Speak Button
-	onSpeakPress?: () => void;
-	isSpeaking?: boolean;
-	speakButtonDisabled?: boolean;
-	// File handling props (can be made controlled too if needed, keeping internal for now)
-
-	// TTS (Text-to-Speech) Props
-	isAutoTTSActive?: boolean;
-	onToggleAutoTTS?: () => void;
-
-	// STT (Speech-to-Text) Props
-	onMicPress?: () => void;
-	isRecording?: boolean;
-	micButtonDisabled?: boolean;
 }
 
 export function PromptInputWithActions({
@@ -48,19 +29,10 @@ export function PromptInputWithActions({
 	onValueChange,
 	onSubmit,
 	isLoading,
-	onSpeakPress,
-	isSpeaking,
-	speakButtonDisabled,
-	isAutoTTSActive,
-	onToggleAutoTTS,
-	onMicPress,
-	isRecording,
-	micButtonDisabled,
 }: PromptInputWithActionsProps) {
 	// File handling state remains internal for now
 	const [files, setFiles] = useState<File[]>([]);
 	const uploadInputRef = useRef<HTMLInputElement>(null);
-	const [showSpeechSettings, setShowSpeechSettings] = useState(false);
 
 	// Internal submit handler calls the passed onSubmit prop
 	const handleFormSubmit = (e?: FormEvent<HTMLFormElement>) => {
@@ -123,7 +95,7 @@ export function PromptInputWithActions({
 
 			<PromptInputTextarea
 				placeholder="Ask me anything..."
-				disabled={isRecording || isLoading}
+				disabled={isLoading}
 			/>
 
 			<PromptInputActions className="flex items-center justify-between gap-2 pt-2">
@@ -133,7 +105,7 @@ export function PromptInputWithActions({
 						<label
 							htmlFor="file-upload"
 							className={`hover:bg-secondary-foreground/10 flex h-8 w-8 cursor-pointer items-center justify-center rounded-2xl ${
-								isLoading || isRecording ? "opacity-50 cursor-not-allowed" : ""
+								isLoading ? "opacity-50 cursor-not-allowed" : ""
 							}`}
 						>
 							<input
@@ -143,87 +115,11 @@ export function PromptInputWithActions({
 								className="hidden"
 								id="file-upload"
 								ref={uploadInputRef}
-								disabled={isLoading || isRecording}
+								disabled={isLoading}
 							/>
 							<Paperclip className="text-primary size-5" />
 						</label>
 					</PromptInputAction>
-					
-					{/* Speech settings button */}
-					{(onSpeakPress || onToggleAutoTTS) && (
-						<PromptInputAction tooltip="Speech settings">
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon"
-								className="h-8 w-8 rounded-full"
-								onClick={() => setShowSpeechSettings(!showSpeechSettings)}
-							>
-								<Settings className="size-5" />
-							</Button>
-						</PromptInputAction>
-					)}
-					
-					{/* Show speech controls based on toggle */}
-					{showSpeechSettings && onSpeakPress && (
-						<PromptInputAction tooltip={isSpeaking ? "Generating speech..." : "Speak last message"}>
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon"
-								className="h-8 w-8 rounded-full"
-								onClick={onSpeakPress}
-								disabled={speakButtonDisabled || isLoading || isRecording}
-							>
-								{isSpeaking ? (
-									<Loader2 className="size-5 animate-spin" />
-								) : (
-									<Volume2 className="size-5" />
-								)}
-							</Button>
-						</PromptInputAction>
-					)}
-					
-					{showSpeechSettings && onToggleAutoTTS && (
-						<PromptInputAction tooltip={isAutoTTSActive ? "Disable auto speech" : "Enable auto speech"}>
-							<Button
-								type="button"
-								variant={isAutoTTSActive ? "default" : "ghost"}
-								size="icon"
-								className="h-8 w-8 rounded-full"
-								onClick={onToggleAutoTTS}
-								disabled={isLoading || isRecording}
-							>
-								{isAutoTTSActive ? (
-									<Volume2 className="size-5 fill-current" />
-								) : (
-									<VolumeX className="size-5" />
-								)}
-							</Button>
-						</PromptInputAction>
-					)}
-					
-					{/* Keep mic button always visible */}
-					{onMicPress && (
-						<PromptInputAction
-							tooltip={isRecording ? "Stop recording" : "Start recording"}
-						>
-							<Button
-								type="button"
-								variant={isRecording ? "destructive" : "ghost"}
-								size="icon"
-								className="h-8 w-8 rounded-full"
-								onClick={onMicPress}
-								disabled={micButtonDisabled || isLoading || isSpeaking}
-							>
-								{isRecording ? (
-									<MicOff className="size-5 fill-current" />
-								) : (
-									<Mic className="size-5" />
-								)}
-							</Button>
-						</PromptInputAction>
-					)}
 				</div>
 
 				<PromptInputAction
@@ -235,7 +131,7 @@ export function PromptInputWithActions({
 						size="icon"
 						className="h-8 w-8 rounded-full"
 						disabled={
-							isLoading || isRecording || (!value.trim() && files.length === 0)
+							isLoading || (!value.trim() && files.length === 0)
 						}
 					>
 						{isLoading ? (

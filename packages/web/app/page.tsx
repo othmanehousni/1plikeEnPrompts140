@@ -15,23 +15,10 @@ import { EdStemSyncButton } from "@/components/layout/settings/edstem-sync-butto
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
 
-// Helper for STT
-let mediaRecorder: MediaRecorder | null = null;
-let audioChunks: Blob[] = [];
-// Preferred MIME types for recording, in order of preference
-const PREFERRED_AUDIO_FORMATS = [
-	"audio/webm", // Webm is widely supported
-	"audio/mp4", // Safari often supports this
-	"audio/wav", // Raw PCM data
-	"audio/ogg", // Firefox often supports thiso
-];
-let selectedAudioFormat =
-	PREFERRED_AUDIO_FORMATS[PREFERRED_AUDIO_FORMATS.length - 1]; // Default to last one
-
 // Combined sync button component
 function SyncButton() {
 	const [isSyncing, setIsSyncing] = useState(false);
-	const { edStemApiKey, togetherApiKey } = useUserPreferences();
+	const { edStemApiKey } = useUserPreferences();
 	const {
 		lastSyncedAt,
 		setLastSyncedAt,
@@ -93,10 +80,8 @@ function SyncButton() {
 
 			console.log("Starting EdStem sync...");
 
-			// Include Together API key if available for generating embeddings
 			const payload = {
 				apiKey: edStemApiKey,
-				...(togetherApiKey ? { togetherApiKey } : {}),
 			};
 
 			const response = await fetch("/api/edstem/sync", {
@@ -175,24 +160,14 @@ function SyncButton() {
 
 export default function Home() {
 	const { toasts, error: showError, dismiss } = useToast();
-	const { togetherApiKey, groqApiKey, edStemApiKey } = useUserPreferences();
+	const { edStemApiKey } = useUserPreferences();
 	const { lastSyncedAt } = useSyncStatus();
 	const [mounted, setMounted] = useState<boolean>(false);
 	const [currentTime, setCurrentTime] = useState<number>(0);
 
-	// TTS State
-	const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
-	const [isAutoTTSActive, setIsAutoTTSActive] = useState<boolean>(false);
-	const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
-
-	// STT State
-	const [isRecording, setIsRecording] = useState<boolean>(false);
-	const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
-
 	// ED Course Selection State
 	const [courses, setCourses] = useState<EDCourse[]>([]);
 	const [isExpanded, setIsExpanded] = useState<boolean>(false);
-	const [hasMessages, setHasMessages] = useState<boolean>(false);
 
 	useEffect(() => {
 		setMounted(true);
@@ -246,172 +221,12 @@ export default function Home() {
 	}, [mounted]);
 
 	useEffect(() => {
-		if (mounted) {
-			if (!togetherApiKey && !groqApiKey) {
-				showError(
-					"Please add an API key (e.g., TogetherAI or Groq) in settings to use the app.",
-				);
-			}
-			if (!edStemApiKey) {
-				showError(
-					"Please add your EdStem API key in settings to sync with your courses.",
-				);
-			}
+		if (mounted && !edStemApiKey) {
+			showError(
+				"Please add your EdStem API key in settings to sync with your courses.",
+			);
 		}
-	}, [togetherApiKey, groqApiKey, edStemApiKey, showError, mounted]);
-
-	const handleSpeakMessage = async (textToSpeak: string) => {
-		if (!textToSpeak || isSpeaking) return;
-		setIsSpeaking(true);
-		try {
-			const headers: Record<string, string> = {
-				"Content-Type": "application/json",
-			};
-			if (groqApiKey) headers["x-groq-api-key"] = groqApiKey;
-
-			const response = await fetch("/api/speech", {
-				method: "POST",
-				headers,
-				body: JSON.stringify({ text: textToSpeak }),
-			});
-			if (!response.ok) {
-				let errorMsg = "Failed to generate speech.";
-				try {
-					const errorData = await response.json();
-					errorMsg = errorData.error || errorMsg;
-				} catch (e) {
-					errorMsg = `Speech API error: ${response.status}`;
-				}
-				showError(errorMsg);
-				setIsSpeaking(false);
-				return;
-			}
-			const audioBlob = await response.blob();
-			const audioUrl = URL.createObjectURL(audioBlob);
-			if (audioPlayerRef.current) {
-				audioPlayerRef.current.src = audioUrl;
-				audioPlayerRef.current.play().catch((err) => {
-					showError("Could not play audio.");
-					setIsSpeaking(false);
-					URL.revokeObjectURL(audioUrl);
-				});
-				audioPlayerRef.current.onended = () => {
-					setIsSpeaking(false);
-					URL.revokeObjectURL(audioUrl);
-				};
-				audioPlayerRef.current.onerror = () => {
-					showError("Audio player error.");
-					setIsSpeaking(false);
-					URL.revokeObjectURL(audioUrl);
-				};
-			} else {
-				setIsSpeaking(false);
-			}
-		} catch (err) {
-			showError("Error in speech handling.");
-			console.error("TTS error:", err);
-			setIsSpeaking(false);
-		}
-	};
-
-	const handleMicPress = async () => {
-		if (isRecording) {
-			mediaRecorder?.stop();
-			setIsRecording(false);
-		} else {
-			if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-				showError("Audio recording is not supported by your browser.");
-				return;
-			}
-
-			for (const format of PREFERRED_AUDIO_FORMATS) {
-				if (MediaRecorder.isTypeSupported(format)) {
-					selectedAudioFormat = format;
-					console.log("[STT] Using audio format:", selectedAudioFormat);
-					break;
-				}
-			}
-
-			try {
-				const stream = await navigator.mediaDevices.getUserMedia({
-					audio: true,
-				});
-				setIsRecording(true);
-				audioChunks = [];
-				mediaRecorder = new MediaRecorder(stream, {
-					mimeType: selectedAudioFormat,
-				});
-				mediaRecorder.ondataavailable = (event) => {
-					audioChunks.push(event.data);
-				};
-				mediaRecorder.onstop = async () => {
-					for (const track of stream.getTracks()) {
-						track.stop();
-					}
-					const audioBlob = new Blob(audioChunks, {
-						type: selectedAudioFormat,
-					});
-
-					if (audioBlob.size === 0) {
-						showError("No audio recorded. Please try again.");
-						setIsTranscribing(false);
-						return;
-					}
-					console.log(
-						`[STT] Recorded audio blob size: ${audioBlob.size}, type: ${audioBlob.type}`,
-					);
-
-					setIsTranscribing(true);
-					try {
-						const headers: Record<string, string> = {};
-						if (groqApiKey) headers["x-groq-api-key"] = groqApiKey;
-
-						const response = await fetch("/api/transcribe", {
-							method: "POST",
-							headers,
-							body: audioBlob,
-						});
-						if (!response.ok) {
-							let errorMsg = "Failed to transcribe audio.";
-							try {
-								const errorData = await response.json();
-								errorMsg =
-									errorData.error ||
-									`Transcription API Error: ${response.status}`;
-								if (errorData.message) errorMsg += ` - ${errorData.message}`;
-							} catch (e) {
-								errorMsg = `Transcription API Error: ${response.status} - ${await response.text()}`;
-							}
-							showError(errorMsg);
-						} else {
-							const result = await response.json();
-							if (result.transcription) {
-								// This is handled via the Chat component now
-								// setInput((prevInput) => prevInput + (prevInput ? " " : "") + result.transcription);
-								showError(
-									"Speech transcribed but input updating not implemented in this version",
-								);
-							} else if (result.error) {
-								showError(result.error);
-							}
-						}
-					} catch (transcribeError) {
-						showError("Error during transcription. Check console.");
-						console.error("STT fetch error:", transcribeError);
-					} finally {
-						setIsTranscribing(false);
-					}
-				};
-				mediaRecorder.start();
-			} catch (err) {
-				showError(
-					"Could not start recording. Check mic permissions or browser support for selected audio format.",
-				);
-				console.error("Mic access/MediaRecorder error:", err);
-				setIsRecording(false);
-			}
-		}
-	};
+	}, [edStemApiKey, showError, mounted]);
 
 	const formattedTime = (() => {
 		if (!mounted) return "";
@@ -460,24 +275,11 @@ export default function Home() {
 					}}
 					className={cn(
 						"rounded-lg w-full",
-						isExpanded
-							? "bg-muted dark:bg-muted"
-							: "bg-transparent",
+						isExpanded ? "bg-muted dark:bg-muted" : "bg-transparent",
 					)}
 				>
 					<div className="flex flex-col w-full justify-between gap-2">
-						<Chat
-							edStemApiKey={edStemApiKey || undefined}
-							togetherApiKey={togetherApiKey || undefined}
-							groqApiKey={groqApiKey || undefined}
-							courses={courses}
-							onError={showError}
-							onSpeakMessage={handleSpeakMessage}
-							isAutoTTSActive={isAutoTTSActive}
-							isSpeaking={isSpeaking}
-							onToggleAutoTTS={() => setIsAutoTTSActive((prev) => !prev)}
-							onMessagesChange={setIsExpanded}
-						/>
+						<Chat />
 					</div>
 				</motion.div>
 				<SettingsButton />
@@ -498,10 +300,6 @@ export default function Home() {
 				</div>
 			)}
 
-			{/* The audio element for playing speech. Hidden but accessible. */}
-			<audio ref={audioPlayerRef} style={{ display: "none" }}>
-				<track kind="captions" label="English captions" />
-			</audio>
 			<ToastContainer toasts={toasts} onDismiss={dismiss} />
 
 			{/* Hidden component to access sync functionality */}
