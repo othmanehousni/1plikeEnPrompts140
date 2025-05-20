@@ -19,15 +19,10 @@ export async function POST(req: Request) {
 	} = await req.json();
 
 	const result = streamText({
-		model: openai("o4-mini"),
+		model: openai("gpt-4o-mini"),
 		system: SYSTEM_PROMPT,
 		messages,
-		providerOptions: {
-			openai: {
-				reasoningEffort: "medium",
-				reasoningSummary: "detailed",
-			},
-		},
+		
 		//tools: {
 		//	searchEdCourse: searchEdCourse(selectedCourseId),
 		//},
