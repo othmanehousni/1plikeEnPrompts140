@@ -89,7 +89,7 @@ export class EDClient {
         const response = await this.fetchWithRetry(`${this.baseUrl}user`);
         const rawData: EDUserApiResponse = await response.json();
         
-        console.log("Received user info data, attempting to parse with Zod:", rawData);
+       // console.log("Received user info data, attempting to parse with Zod:", rawData);
         return rawData.courses.map(course => course.course).filter(this.isCourseActive);
     }
 

@@ -7,8 +7,9 @@ import {
 	timestamp,
 	jsonb,
 	varchar, // if you need specific length strings, otherwise text is fine
-	vector
+	vector,
 } from "drizzle-orm/pg-core";
+export * from "./auth"; // add auth to db schema
 
 // Courses table
 export const courses = pgTable("courses", {
@@ -35,7 +36,7 @@ export const threads = pgTable("threads", {
 	isStudentAnswered: boolean("is_student_answered").default(false),
 	createdAt: timestamp("created_at").defaultNow(), // Use timestamp, defaultNow is fine for pg
 	updatedAt: timestamp("updated_at").defaultNow(), // Use timestamp, can also use .onUpdateNow()
-	images: jsonb("images").default('[]'),
+	images: jsonb("images").default("[]"),
 	embedding: vector("embedding", { dimensions: 1024 }),
 });
 
@@ -50,7 +51,7 @@ export const answers = pgTable("answers", {
 		.references(() => courses.id),
 	parentId: integer("parent_id"), // Assuming parent_id refers to another answer's id
 	message: text("message"),
-	images: jsonb("images").default('[]'),
+	images: jsonb("images").default("[]"),
 	isResolved: boolean("is_resolved").default(false),
 	createdAt: timestamp("created_at").defaultNow(),
 	updatedAt: timestamp("updated_at").defaultNow(),
