@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { syncEdStemCourses } from "@/lib/db/edstem";
+import { validateEpflDomain } from "@/lib/auth-utils";
 
 const syncRequestSchema = z.object({
 	apiKey: z.string().min(1),
@@ -10,6 +11,12 @@ const syncRequestSchema = z.object({
 
 export async function POST(req: NextRequest) {
 	try {
+		// Validate EPFL domain before processing request
+		const validation = await validateEpflDomain(req);
+		if (!validation.isValid) {
+			return validation.response!;
+		}
+
 		// Parse and validate request body
 		let body: unknown;
 		try {

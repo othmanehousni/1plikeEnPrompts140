@@ -2,10 +2,17 @@ import { db } from "@/lib/db";
 import { answers, threads } from "@/lib/db/schema";
 import { generateEmbeddings } from "@/lib/embeddings";
 import { sql, eq, desc, and, inArray } from "drizzle-orm";
-import { NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
+import { validateEpflDomain } from "@/lib/auth-utils";
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
 	try {
+		// Validate EPFL domain before processing request
+		const validation = await validateEpflDomain(req);
+		if (!validation.isValid) {
+			return validation.response!;
+		}
+
 		const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 		const { query, courseId, limit = 5 } = await req.json();
 

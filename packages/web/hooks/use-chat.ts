@@ -74,6 +74,58 @@ export function useChat() {
     },
     maxSteps: 5, // Allow up to 5 steps for multi-step tool calls
   });
+
+  // Handle account revocation - after chat hook is initialized
+  useEffect(() => {
+    const handleRevocation = () => {
+      console.log('Chat: Handling account revocation - clearing chat state');
+      
+      // Clear all chat state
+      setThreads([]);
+      setCurrentThread(null);
+      setStoredMessages([]);
+      setIsInitialized(false);
+      
+      // Stop any ongoing chat operations if available
+      try {
+        stop();
+        setMessages([]);
+      } catch (error) {
+        console.log('Chat: Stop/setMessages not available during revocation');
+      }
+      
+      console.log('Chat: Successfully disconnected from chat');
+    };
+
+    const handleDisconnect = () => {
+      console.log('Chat: Handling user disconnect - clearing chat state');
+      
+      // Clear all chat state
+      setThreads([]);
+      setCurrentThread(null);
+      setStoredMessages([]);
+      setIsInitialized(false);
+      
+      // Stop any ongoing chat operations if available
+      try {
+        stop();
+        setMessages([]);
+      } catch (error) {
+        console.log('Chat: Stop/setMessages not available during disconnect');
+      }
+      
+      console.log('Chat: Successfully cleared chat state for disconnect');
+    };
+
+    // Listen for revocation and disconnect events
+    window.addEventListener('account-revoked', handleRevocation);
+    window.addEventListener('user-disconnected', handleDisconnect);
+    
+    return () => {
+      window.removeEventListener('account-revoked', handleRevocation);
+      window.removeEventListener('user-disconnected', handleDisconnect);
+    };
+  }, [stop, setMessages]);
   
   // Custom submit handler
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {

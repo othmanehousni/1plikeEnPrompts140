@@ -1,8 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { EDClient } from "@/lib/ed-client";
+import { validateEpflDomain } from "@/lib/auth-utils";
 
 export async function GET(request: NextRequest) {
 	try {
+		// Validate EPFL domain before processing request
+		const validation = await validateEpflDomain(request);
+		if (!validation.isValid) {
+			return validation.response!;
+		}
+
 		// Get the ED API key from request headers
 		const edStemApiKey = request.headers.get("x-edstem-api-key");
 

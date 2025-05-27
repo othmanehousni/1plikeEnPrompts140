@@ -15,6 +15,15 @@ import { EdStemSyncButton } from "@/components/layout/settings/edstem-sync-butto
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { useRevocationHandler } from "@/hooks/use-revocation-handler";
+
+// Define a simple loading component (can be replaced with a more styled one)
+const PageLoader = () => (
+	<div className="flex h-screen w-screen items-center justify-center">
+		<p className="text-lg text-muted-foreground">Loading...</p>
+		{/* You can add a spinner icon here if desired */}
+	</div>
+);
 
 // Combined sync button component
 function SyncButton() {
@@ -166,6 +175,10 @@ export default function Home() {
 	const [mounted, setMounted] = useState<boolean>(false);
 	const [currentTime, setCurrentTime] = useState<number>(0);
 	const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+	const [authLoading, setAuthLoading] = useState<boolean>(true);
+
+	// Initialize revocation handler
+	useRevocationHandler();
 
 	// ED Course Selection State
 	const [courses, setCourses] = useState<EDCourse[]>([]);
@@ -175,31 +188,52 @@ export default function Home() {
 		setMounted(true);
 		setCurrentTime(Date.now());
 
-		// Check authentication status
-		const checkAuth = async () => {
+		const checkAuthStatus = async () => {
 			try {
 				const session = await authClient.getSession();
-				// console.log("session", session) // Removing previous log
-				// console.log("isAuthenticated before update", isAuthenticated) // Removing previous log
-
-				if (session?.data) { // Corrected condition with optional chaining
+				if (session?.data) {
+					const userEmail = session.data.user?.email;
+					if (userEmail) {
+						const domain = userEmail.split('@')[1];
+						console.log(`[CLIENT] Validating user domain: ${userEmail} -> ${domain}`);
+						
+						if (domain !== 'epfl.ch') {
+							console.warn(`[CLIENT] ❌ Non-EPFL user detected: ${userEmail}`);
+							
+							// Force disconnect and redirect
+							try {
+								await authClient.signOut();
+								localStorage.clear();
+								sessionStorage.clear();
+								window.location.href = '/revoked';
+								return;
+							} catch (error) {
+								console.error('Error during forced disconnect:', error);
+								window.location.reload();
+								return;
+							}
+						} else {
+							console.log(`[CLIENT] ✅ EPFL user validated: ${userEmail}`);
+						}
+					}
 					setIsAuthenticated(true);
-					// setShowLoginDialog(false); // No longer needed
 				} else {
 					setIsAuthenticated(false);
-					// setShowLoginDialog(true); // No longer needed
 				}
 			} catch (error) {
 				console.error("Error checking auth status:", error);
 				setIsAuthenticated(false);
-				// setShowLoginDialog(true); // No longer needed
+			} finally {
+				setAuthLoading(false); // Auth check complete
 			}
 		};
 		
-		checkAuth();
+		checkAuthStatus();
+	}, []); // Run once on mount to check auth status
 
-		// Fetch last sync date and courses only if authenticated
-		if (edStemApiKey && isAuthenticated) {
+	// Fetch last sync date and courses only if authenticated and API key exists
+	useEffect(() => {
+		if (!authLoading && isAuthenticated && edStemApiKey) {
 			const fetchLastSyncDate = async () => {
 				try {
 					const response = await fetch("/api/edstem/last-sync");
@@ -216,7 +250,6 @@ export default function Home() {
 
 			fetchLastSyncDate();
 
-			// Fetch available courses
 			const fetchCourses = async () => {
 				try {
 					const response = await fetch("/api/edstem/courses", {
@@ -237,7 +270,7 @@ export default function Home() {
 
 			fetchCourses();
 		}
-	}, [edStemApiKey, isAuthenticated]);
+	}, [authLoading, isAuthenticated, edStemApiKey]);
 
 	useEffect(() => {
 		if (!mounted) return;
@@ -246,12 +279,12 @@ export default function Home() {
 	}, [mounted]);
 
 	useEffect(() => {
-		if (mounted && !edStemApiKey && isAuthenticated) {
+		if (mounted && !authLoading && !edStemApiKey && isAuthenticated) {
 			showError(
 				"Please add your EdStem API key in settings to sync with your courses.",
 			);
 		}
-	}, [edStemApiKey, showError, mounted, isAuthenticated]);
+	}, [edStemApiKey, showError, mounted, authLoading, isAuthenticated]);
 
 	const handleGoogleSignIn = async () => {
 		try {
@@ -286,7 +319,9 @@ export default function Home() {
 		return date.toLocaleDateString("en-US", options);
 	})();
 
-	// console.log("Render state - isAuthenticated:", isAuthenticated, "showLoginDialog:", showLoginDialog); // No longer needed
+	if (authLoading) {
+		return <PageLoader />;
+	}
 
 	return (
 		<div className="flex h-screen w-screen items-center justify-center relative">
@@ -352,7 +387,7 @@ export default function Home() {
 				<div className="absolute bottom-4 left-4 font-mono text-xs text-muted-foreground">
 					<div className="font-bold mb-1">Ask Ed</div>
 					<div className="flex items-center gap-2">
-						<span>Lauzhack 2025</span>
+					
 						<span className="opacity-60">•</span>
 						<div className="flex items-center gap-1">
 							<span>{formattedDate}</span>

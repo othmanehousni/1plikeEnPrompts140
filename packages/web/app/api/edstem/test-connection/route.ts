@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { EDClient } from "../../../../lib/ed-client";
+import { validateEpflDomain } from "@/lib/auth-utils";
 
 const testRequestSchema = z.object({
 	apiKey: z.string().min(1),
@@ -17,6 +18,12 @@ type EdStemTestResult = {
 
 export async function POST(req: NextRequest) {
 	try {
+		// Validate EPFL domain before processing request
+		const validation = await validateEpflDomain(req);
+		if (!validation.isValid) {
+			return validation.response!;
+		}
+
 		let body: unknown;
 		try {
 			body = await req.json();
