@@ -1,7 +1,6 @@
 import type { Message as TMessage } from "ai";
 import { Message } from "./message";
-import { useScrollToBottom } from "@/lib/hooks/use-scroll-to-bottom";
-import React from "react";
+import React, { useEffect, useRef } from "react";
 
 export const Messages = ({
   messages,
@@ -12,13 +11,18 @@ export const Messages = ({
   isLoading: boolean;
   status: "error" | "submitted" | "streaming" | "ready";
 }) => {
-  const [containerRef, endRef] = useScrollToBottom();
+  const endRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (endRef.current) {
+      endRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages]);
+
   return (
-    <div
-      className="flex-1 h-full space-y-4 overflow-y-auto py-8"
-      ref={containerRef}
-    >
-      <div className="max-w-xl mx-auto pt-8">
+    <div className="w-full space-y-4 pt-20 pb-32">
+      <div className="max-w-3xl mx-auto pt-8 px-4">
         {messages.map((m) => (
           <Message
             key={m.id || `message-${m.role}-${m.content}`}

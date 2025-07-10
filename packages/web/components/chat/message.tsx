@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { memo, useCallback, useEffect, useState } from "react";
 import equal from "fast-deep-equal";
 
-import { Markdown } from "./markdown";
+import { Markdown } from "@/components/ui/markdown";
 import { cn } from "@/lib/utils";
 import {
 	CheckCircle,
@@ -129,7 +129,7 @@ const PurePreviewMessage = ({
 	return (
 		<AnimatePresence key={message.id}>
 			<motion.div
-				className="w-full mx-auto px-4 group/message"
+				className="w-full max-w-full min-w-0 mx-auto px-4 group/message"
 				initial={{ y: 5, opacity: 0 }}
 				animate={{ y: 0, opacity: 1 }}
 				key={`message-${message.id}`}
@@ -137,11 +137,11 @@ const PurePreviewMessage = ({
 			>
 				<div
 					className={cn(
-						"flex gap-4 w-full group-data-[role=user]/message:ml-auto group-data-[role=user]/message:max-w-2xl",
+						"flex gap-4 w-full max-w-full min-w-0 group-data-[role=user]/message:ml-auto group-data-[role=user]/message:max-w-3xl",
 						"group-data-[role=user]/message:w-fit",
 					)}
 				>
-					<div className="flex flex-col w-full space-y-4">
+					<div className="flex flex-col w-full max-w-full min-w-0 space-y-4">
 						{message.parts?.map((part, i) => {
 							switch (part.type) {
 								case "text":
@@ -153,12 +153,21 @@ const PurePreviewMessage = ({
 											className="flex flex-row gap-2 items-start w-full pb-4"
 										>
 											<div
-												className={cn("flex flex-col gap-4", {
+												className={cn("flex flex-col gap-4 w-full max-w-full min-w-0", {
 													"bg-secondary text-secondary-foreground px-3 py-2 rounded-2xl":
 														message.role === "user",
 												})}
 											>
-												<div>{part.text}</div>
+												{message.role === "assistant" ? (
+													<Markdown 
+														id={`${message.id}-part-${i}`}
+														className="w-full max-w-full min-w-0"
+													>
+														{part.text}
+													</Markdown>
+												) : (
+													<div className="w-full max-w-full min-w-0 break-words">{part.text}</div>
+												)}
 											</div>
 										</motion.div>
 									);

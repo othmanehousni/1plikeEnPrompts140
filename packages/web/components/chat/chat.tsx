@@ -31,24 +31,28 @@ export default function Chat() {
 	const isLoading = status === "streaming" || status === "submitted";
 
 	return (
-		<div className="h-dvh flex flex-col justify-between w-full stretch">
+		<div className="w-full min-h-screen">
 			<Messages messages={messages} isLoading={isLoading} status={status} />
-			<div className="pb-8 w-full max-w-xl mx-auto px-4 sm:px-0">
-				<form onSubmit={handleSubmit} className="w-full pt-4">
-					<PromptInputWithActions
-						value={input}
-						onValueChange={(value) =>
-							handleInputChange({
-								target: { value },
-							} as React.ChangeEvent<HTMLInputElement>)
-						}
-						onSubmit={handleSubmit}
-						isLoading={isLoading}
-						onStop={stop}
-						selectedModel={selectedModel}
-						setSelectedModel={setSelectedModel}
-					/>
-				</form>
+			
+			{/* Fixed input at bottom */}
+			<div className="fixed bottom-0 left-0 right-0 bg-transparent p-4">
+				<div className="w-full max-w-xl mx-auto px-4">
+					<form onSubmit={handleSubmit} className="w-full">
+						<PromptInputWithActions
+							value={input}
+							onValueChange={(value) =>
+								handleInputChange({
+									target: { value },
+								} as React.ChangeEvent<HTMLInputElement>)
+							}
+							onSubmit={handleSubmit}
+							isLoading={isLoading}
+							onStop={stop}
+							selectedModel={selectedModel}
+							setSelectedModel={setSelectedModel}
+						/>
+					</form>
+				</div>
 			</div>
 		</div>
 	);

@@ -9,7 +9,7 @@ export function SettingsButton() {
 	const [isOpen, setIsOpen] = useState(false);
 
 	return (
-		<div className="fixed top-4 right-4">
+		<>
 			<Button
 				variant="ghost"
 				size="icon"
@@ -20,6 +20,6 @@ export function SettingsButton() {
 			</Button>
 
 			<SettingsDialog open={isOpen} onOpenChange={setIsOpen} />
-		</div>
+		</>
 	);
 }
