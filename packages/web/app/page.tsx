@@ -177,9 +177,7 @@ export default function Home() {
 	const [currentTime, setCurrentTime] = useState<number>(0);
 	const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 	const [authLoading, setAuthLoading] = useState<boolean>(true);
-	const [currentThreadId, setCurrentThreadId] = useState<string>(() => 
-		`thread_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-	);
+	const [currentChatId, setCurrentChatId] = useState<string>('');
 
 	// Initialize revocation handler
 	useRevocationHandler();
@@ -188,17 +186,17 @@ export default function Home() {
 	const [courses, setCourses] = useState<EDCourse[]>([]);
 	const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
-	// Thread management
-	const handleThreadSelect = (threadId: string) => {
-		setCurrentThreadId(threadId);
-		// Clear the page to show the selected thread
-		window.location.reload();
+	// Chat management
+	const handleChatSelect = (chatId: string) => {
+		console.log('🔍 [Page] Chat selection handler called with chatId:', chatId);
+		console.log('🔍 [Page] Previous chatId:', currentChatId);
+		setCurrentChatId(chatId);
+		console.log('🔍 [Page] New chatId set:', chatId);
 	};
 
-	const startNewThread = () => {
-		const newThreadId = `thread_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-		setCurrentThreadId(newThreadId);
-		window.location.reload();
+	const startNewChat = () => {
+		console.log('🔍 [Page] Starting new chat...');
+		setCurrentChatId('');
 	};
 
 	useEffect(() => {
@@ -351,7 +349,7 @@ export default function Home() {
 
 			{/* Theme Toggle Button and Sync Button - Top Right */}
 			<div className="fixed top-4 right-4 flex items-center gap-3 z-50">
-				{isAuthenticated && <ThreadsButton onThreadSelect={handleThreadSelect} />}
+				{isAuthenticated && <ThreadsButton onThreadSelect={handleChatSelect} />}
 				{isAuthenticated && <SyncButton />}
 				<ThemeToggle />
 				{isAuthenticated && <SettingsButton />}
@@ -374,7 +372,10 @@ export default function Home() {
 			{/* Main content area - allows natural scrolling */}
 			<div className="w-full min-h-screen">
 				{isAuthenticated ? (
-					<Chat threadId={currentThreadId} onThreadChange={setCurrentThreadId} />
+					<>
+						{console.log('🔍 [Page] Rendering Chat component with chatId:', currentChatId)}
+						<Chat chatId={currentChatId} onChatChange={setCurrentChatId} />
+					</>
 				) : (
 					<div className="flex h-screen items-center justify-center">
 						<div className="flex flex-col items-center justify-center text-center p-8 border rounded-lg shadow-md bg-card max-w-md">

@@ -52,22 +52,24 @@ export function ThreadsButton({ onThreadSelect }: ThreadsButtonProps) {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/threads', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-      });
+      console.log('🔍 [ThreadsButton] Fetching chats from local database...');
+      const { getAllChats } = await import('@/lib/db/local');
+      const chats = await getAllChats();
       
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      // Transform chats to thread format
+      const threadsData = chats.map(chat => ({
+        id: chat.id,
+        title: chat.title,
+        createdAt: chat.createdAt.toISOString(),
+        updatedAt: chat.updatedAt.toISOString(),
+        messageCount: 0, // We'll calculate this later if needed
+      }));
       
-      const data = await response.json();
-      setThreads(data.threads || []);
+      console.log('🔍 [ThreadsButton] Fetched chats:', threadsData.length, 'chats');
+      console.log('🔍 [ThreadsButton] Chats data:', threadsData);
+      setThreads(threadsData);
     } catch (error) {
-      console.error('Error fetching threads:', error);
+      console.error('🔍 [ThreadsButton] Error fetching chats:', error);
       setError('Failed to load conversations. Please try again.');
       setThreads([]);
     } finally {
@@ -76,6 +78,8 @@ export function ThreadsButton({ onThreadSelect }: ThreadsButtonProps) {
   };
 
   const handleThreadSelect = (threadId: string) => {
+    console.log('🔍 [ThreadsButton] Thread selected:', threadId);
+    console.log('🔍 [ThreadsButton] Available threads:', threads.map(t => ({ id: t.id, title: t.title })));
     onThreadSelect(threadId);
     setOpen(false);
   };
@@ -83,22 +87,18 @@ export function ThreadsButton({ onThreadSelect }: ThreadsButtonProps) {
   const handleDeleteThread = async (threadId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      const response = await fetch(`/api/threads/${threadId}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-      });
+      const { deleteChat } = await import('@/lib/db/local');
+      const success = await deleteChat(threadId);
       
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      if (!success) {
+        throw new Error('Failed to delete chat');
       }
       
       // Remove thread from local state
       setThreads(prev => prev.filter(thread => thread.id !== threadId));
+      console.log('✅ [ThreadsButton] Chat deleted successfully:', threadId);
     } catch (error) {
-      console.error('Error deleting thread:', error);
+      console.error('❌ [ThreadsButton] Error deleting chat:', error);
       setError('Failed to delete conversation. Please try again.');
     }
   };
@@ -114,17 +114,11 @@ export function ThreadsButton({ onThreadSelect }: ThreadsButtonProps) {
 
   const handleSaveRename = async (threadId: string) => {
     try {
-      const response = await fetch(`/api/threads/${threadId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ title: editTitle }),
-      });
+      const { updateChatTitle } = await import('@/lib/db/local');
+      const updatedChat = await updateChatTitle(threadId, editTitle);
       
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      if (!updatedChat) {
+        throw new Error('Failed to update chat title');
       }
       
       // Update thread in local state
@@ -134,8 +128,9 @@ export function ThreadsButton({ onThreadSelect }: ThreadsButtonProps) {
       
       setEditingThread(null);
       setEditTitle("");
+      console.log('✅ [ThreadsButton] Chat renamed successfully:', threadId);
     } catch (error) {
-      console.error('Error renaming thread:', error);
+      console.error('❌ [ThreadsButton] Error renaming chat:', error);
       setError('Failed to rename conversation. Please try again.');
     }
   };

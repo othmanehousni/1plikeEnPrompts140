@@ -1,13 +1,10 @@
-import { createTool } from "@mastra/core/tools";
+import { tool } from "ai";
 import { z } from "zod";
 
-
-
-export const searchEdCourse = (selectedCourseId: string) => createTool({
-	id: "searchEdCourse",
+export const searchEdCourse = tool({
 	description:
 		"Search for information in the current Ed course using natural language queries",
-	inputSchema: z.object({
+	parameters: z.object({
 		query: z
 			.string()
 			.describe(
@@ -23,26 +20,18 @@ export const searchEdCourse = (selectedCourseId: string) => createTool({
 			.number()
 			.optional()
 			.describe("Maximum number of results to return. Default is 5."),
-	}) as any,
-	execute: async ({ context }) => {
-		const {
-			query = "",
-			courseId = selectedCourseId,
-			limit = 5,
-		} = context;
+	}),
+	execute: async ({ query, courseId, limit = 5 }) => {
 		try {
 			// Debug the courseId before making the request
 			console.log("[SEARCH_TOOL] Input parameters:", {
 				query,
 				courseId,
-				selectedCourseId,
 				courseIdType: typeof courseId,
 			});
 
 			// Ensure courseId is an integer
-			const courseIdToUse = courseId
-				? String(courseId)
-				: String(selectedCourseId);
+			const courseIdToUse = courseId ? String(courseId) : undefined;
 
 			// Get the base URL from headers or environment
 			const protocol = process.env.VERCEL_URL ? "https" : "http";
