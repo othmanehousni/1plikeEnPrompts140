@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { useRevocationHandler } from "@/hooks/use-revocation-handler";
+import { ThreadsButton } from "@/components/chat/threads-button";
 
 // Define a simple loading component (can be replaced with a more styled one)
 const PageLoader = () => (
@@ -176,6 +177,9 @@ export default function Home() {
 	const [currentTime, setCurrentTime] = useState<number>(0);
 	const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 	const [authLoading, setAuthLoading] = useState<boolean>(true);
+	const [currentThreadId, setCurrentThreadId] = useState<string>(() => 
+		`thread_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+	);
 
 	// Initialize revocation handler
 	useRevocationHandler();
@@ -183,6 +187,19 @@ export default function Home() {
 	// ED Course Selection State
 	const [courses, setCourses] = useState<EDCourse[]>([]);
 	const [isExpanded, setIsExpanded] = useState<boolean>(false);
+
+	// Thread management
+	const handleThreadSelect = (threadId: string) => {
+		setCurrentThreadId(threadId);
+		// Clear the page to show the selected thread
+		window.location.reload();
+	};
+
+	const startNewThread = () => {
+		const newThreadId = `thread_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+		setCurrentThreadId(newThreadId);
+		window.location.reload();
+	};
 
 	useEffect(() => {
 		setMounted(true);
@@ -334,6 +351,7 @@ export default function Home() {
 
 			{/* Theme Toggle Button and Sync Button - Top Right */}
 			<div className="fixed top-4 right-4 flex items-center gap-3 z-50">
+				{isAuthenticated && <ThreadsButton onThreadSelect={handleThreadSelect} />}
 				{isAuthenticated && <SyncButton />}
 				<ThemeToggle />
 				{isAuthenticated && <SettingsButton />}
@@ -356,7 +374,7 @@ export default function Home() {
 			{/* Main content area - allows natural scrolling */}
 			<div className="w-full min-h-screen">
 				{isAuthenticated ? (
-					<Chat />
+					<Chat threadId={currentThreadId} onThreadChange={setCurrentThreadId} />
 				) : (
 					<div className="flex h-screen items-center justify-center">
 						<div className="flex flex-col items-center justify-center text-center p-8 border rounded-lg shadow-md bg-card max-w-md">

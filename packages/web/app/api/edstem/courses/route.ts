@@ -1,6 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { EDClient } from "@/lib/ed-client";
 import { validateEpflDomain } from "@/lib/auth-utils";
+import type { EDCourse } from "@/types/schema/ed.schema";
+
+interface APIError extends Error {
+	message: string;
+}
 
 export async function GET(request: NextRequest) {
 	try {
@@ -25,12 +30,12 @@ export async function GET(request: NextRequest) {
 			const client = new EDClient(edStemApiKey);
 			
 			// Add a timeout wrapper for the API call
-			const timeoutPromise = new Promise((_, reject) => {
+			const timeoutPromise = new Promise<never>((_, reject) => {
 				setTimeout(() => reject(new Error("Request timeout")), 15000);
 			});
 			
 			const coursesPromise = client.getCourses();
-			const courses = await Promise.race([coursesPromise, timeoutPromise]) as any;
+			const courses = await Promise.race([coursesPromise, timeoutPromise]) as EDCourse[];
 			
 			if (!courses || !Array.isArray(courses)) {
 				return NextResponse.json(
@@ -41,23 +46,24 @@ export async function GET(request: NextRequest) {
 
 			// Return courses
 			return NextResponse.json({ courses });
-		} catch (apiError: any) {
+		} catch (apiError: unknown) {
+			const error = apiError as APIError;
 			// Handle specific API errors
-			if (apiError.message?.includes("401") || apiError.message?.includes("Unauthorized")) {
+			if (error.message?.includes("401") || error.message?.includes("Unauthorized")) {
 				return NextResponse.json(
 					{ error: "Invalid EdStem API key. Please check your credentials." },
 					{ status: 401 },
 				);
 			}
 			
-			if (apiError.message?.includes("429") || apiError.message?.includes("Too Many Requests")) {
+			if (error.message?.includes("429") || error.message?.includes("Too Many Requests")) {
 				return NextResponse.json(
 					{ error: "Rate limit exceeded on EdStem API. Please try again later." },
 					{ status: 429 },
 				);
 			}
 			
-			if (apiError.message?.includes("timeout")) {
+			if (error.message?.includes("timeout")) {
 				return NextResponse.json(
 					{ error: "EdStem API request timed out. Please try again later." },
 					{ status: 504 },
@@ -67,11 +73,12 @@ export async function GET(request: NextRequest) {
 			// Generic error with original message
 			throw apiError;
 		}
-	} catch (error: any) {
-		console.error("Error fetching courses:", error);
+	} catch (error: unknown) {
+		const err = error as APIError;
+		console.error("Error fetching courses:", err);
 		return NextResponse.json(
 			{ 
-				error: `Failed to fetch courses: ${error.message || "Unknown error"}` 
+				error: `Failed to fetch courses: ${err.message || "Unknown error"}` 
 			},
 			{ status: 500 },
 		);

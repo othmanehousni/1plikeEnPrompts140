@@ -1,21 +1,13 @@
-import { tool } from "ai";
+import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 
-export const weatherTool = tool({
-	description: "Get the weather in a location",
-	parameters: z.object({
-		location: z.string().describe("The location to get the weather for"),
-	}),
-	execute: async ({ location }) => ({
-		location,
-		temperature: 72 + Math.floor(Math.random() * 21) - 10,
-	}),
-});
 
-export const searchEdCourse = (selectedCourseId: string) => ({
+
+export const searchEdCourse = (selectedCourseId: string) => createTool({
+	id: "searchEdCourse",
 	description:
 		"Search for information in the current Ed course using natural language queries",
-	parameters: z.object({
+	inputSchema: z.object({
 		query: z
 			.string()
 			.describe(
@@ -31,12 +23,13 @@ export const searchEdCourse = (selectedCourseId: string) => ({
 			.number()
 			.optional()
 			.describe("Maximum number of results to return. Default is 5."),
-	}),
-	execute: async ({
-		query = "",
-		courseId = selectedCourseId,
-		limit = 5,
-	}) => {
+	}) as any,
+	execute: async ({ context }) => {
+		const {
+			query = "",
+			courseId = selectedCourseId,
+			limit = 5,
+		} = context;
 		try {
 			// Debug the courseId before making the request
 			console.log("[SEARCH_TOOL] Input parameters:", {
@@ -71,7 +64,6 @@ export const searchEdCourse = (selectedCourseId: string) => ({
 					query,
 					courseId: courseIdToUse,
 					limit,
-					togetherApiKey,
 				}),
 			});
 

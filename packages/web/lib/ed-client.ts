@@ -112,7 +112,7 @@ export class EDClient {
             while (hasMorePages) {
                 console.log(`[ED-CLIENT.ts] Fetching page ${page} of threads for course ${courseId}...`);
                 let url = `${this.baseUrl}courses/${courseId}/threads?&limit=${limit}`;
-                let offset = page * 30;
+                const offset = page * 30;
                 if (offset > 0) {
                     url += `&offset=${offset}`;
                 }

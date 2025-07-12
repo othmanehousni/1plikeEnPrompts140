@@ -1,6 +1,7 @@
 import { useId } from "react";
 import { useTheme } from "next-themes";
 import { CheckIcon } from "lucide-react";
+import Image from "next/image";
 
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
@@ -38,9 +39,11 @@ export default function ThemeSwitcher() {
 									peer-focus-visible:ring-4 peer-focus-visible:ring-ring/30
 									group-hover:border-border/80
 									peer-data-[state=checked]:border-primary">
-									<img
+									<Image
 										src={item.image}
 										alt={item.label}
+										width={200}
+										height={150}
 										className="aspect-[4/3] object-cover w-full h-auto bg-background/50"
 									/>
 									<div className="absolute inset-0 peer-data-[state=checked]:bg-primary/10 transition-colors duration-200" />

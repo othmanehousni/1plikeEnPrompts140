@@ -24,9 +24,6 @@
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
   "exclude": [
-    "node_modules",
-    "app/api/answers/**/*.ts",
-    "app/api/threads/**/*.ts",
-    "app/api/courses/**/*.ts"
+    "node_modules"
   ]
 }

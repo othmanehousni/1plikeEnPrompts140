@@ -1,14 +1,14 @@
-import { db } from './index';
-import { courses, threads, answers } from "./schema";
-import { eq, desc as drizzleDesc, count } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { threads, answers, courses } from "@/lib/db/schema";
+import { eq, and, count, sql, desc } from "drizzle-orm";
 import { z } from "zod";
-import { EDClient } from '@/lib/ed-client';
-import type { EDListedThread, EDListedAnswer, EDCourse, EDUserCourseEntry } from '@/types/schema/ed.schema'; // Import centralized types
+import { EDClient } from "@/lib/ed-client";
+import { EDCourse, EDUserCourseEntry, type EDListedThread, type EDThread, type EDAnswer } from "@/types/schema/ed.schema";
 import { 
   generateEmbeddings, 
   prepareThreadTextForEmbedding, 
   prepareAnswerTextForEmbedding 
-} from '@/lib/embeddings';
+} from "@/lib/embeddings";
 
 // Local type definitions for EdStemThread and EdStemAnswer (used by sync logic) are now replaced by EDListedThread and EDListedAnswer.
 // EdStemImage type is also imported.
@@ -81,7 +81,15 @@ async function syncAnswersForThread(threadId: number, client: EDClient, together
 		console.log(`[EDSTEM.ts] 📝 Syncing answers for special thread #182914...`);
 	}
 	
-	let edAnswersFromAPI: EDListedAnswer[] = []; 
+	let edAnswersFromAPI: Array<{
+		id: number;
+		parent_id: number | null;
+		message: string | null;
+		images: string[];
+		is_resolved: boolean;
+		created_at: string;
+		updated_at: string;
+	}> = []; 
 	try {
 		// Add timeout protection for API calls
 		const threadDataPromise = client.fetchThread(threadId);
@@ -89,9 +97,9 @@ async function syncAnswersForThread(threadId: number, client: EDClient, together
 			setTimeout(() => reject(new Error("Thread fetch timeout")), 30000)
 		);
 		
-		let threadData;
+		let threadData: EDThread;
 		try {
-			threadData = await Promise.race([threadDataPromise, timeoutPromise]) as any;
+			threadData = await Promise.race([threadDataPromise, timeoutPromise]) as EDThread;
 			if (!threadData || !threadData.answers) {
 				console.error(`[EDSTEM.ts] ⚠️ Invalid thread data received for ${threadId}`);
 				return { threadId, answersInserted: 0, answersUpdated: 0, answersErrored: 1 };
@@ -101,7 +109,7 @@ async function syncAnswersForThread(threadId: number, client: EDClient, together
 			return { threadId, answersInserted: 0, answersUpdated: 0, answersErrored: 1 };
 		}
 
-		edAnswersFromAPI = threadData.answers.map((answer: any) => ({
+		edAnswersFromAPI = threadData.answers.map((answer: EDAnswer) => ({
 			id: answer.id,
 			parent_id: answer.parent_id,
 			message: answer.content || answer.document || null,
@@ -601,7 +609,7 @@ export async function syncEdStemCourses(options: EdStemSyncOptions): Promise<{
 		let latestOverallSyncDate: Date | null = new Date();
 		try {
 			const latestCourseSync = await db.query.courses.findFirst({
-				orderBy: (coursesTable, { desc }) => [drizzleDesc(coursesTable.lastSynced)],
+				orderBy: (coursesTable, { desc }) => [desc(coursesTable.lastSynced)],
 			});
 			latestOverallSyncDate = latestCourseSync?.lastSynced ? new Date(latestCourseSync.lastSynced) : new Date();
 		} catch (dbError) {
@@ -633,7 +641,7 @@ export async function syncEdStemCourses(options: EdStemSyncOptions): Promise<{
 export async function getLastSyncDate(): Promise<Date | null> {
 	try {
 		const latestSync = await db.query.courses.findFirst({
-			orderBy: (coursesTable, { desc }) => [drizzleDesc(coursesTable.lastSynced)],
+			orderBy: (coursesTable, { desc }) => [desc(coursesTable.lastSynced)],
 		});
 		return latestSync?.lastSynced ? new Date(latestSync.lastSynced) : null;
 	} catch (error) {

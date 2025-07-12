@@ -1,349 +1,143 @@
-"use client";
-import { usePreventScroll } from "@/hooks/usePreventScroll";
-import { cn } from "@/lib/utils";
-import { X } from "lucide-react";
-import {
-	AnimatePresence,
-	motion,
-	type Transition,
-	type Variants,
-} from "motion/react";
-import React, {
-	createContext,
-	useContext,
-	useEffect,
-	useId,
-	useRef,
-} from "react";
-import { createPortal } from "react-dom";
+"use client"
 
-const DialogContext = createContext<{
-	isOpen: boolean;
-	setIsOpen: (open: boolean) => void;
-	dialogRef: React.RefObject<HTMLDialogElement | null>;
-	variants: Variants;
-	transition?: Transition;
-	ids: {
-		dialog: string;
-		title: string;
-		description: string;
-	};
-	onAnimationComplete: (definition: string) => void;
-	handleTrigger: () => void;
-} | null>(null);
+import * as React from "react"
+import * as DialogPrimitive from "@radix-ui/react-dialog"
+import { XIcon } from "lucide-react"
 
-const defaultVariants: Variants = {
-	initial: {
-		opacity: 0,
-		scale: 0.9,
-	},
-	animate: {
-		opacity: 1,
-		scale: 1,
-	},
-};
-
-const defaultTransition: Transition = {
-	ease: "easeOut",
-	duration: 0.2,
-};
-
-export type DialogProps = {
-	children: React.ReactNode;
-	variants?: Variants;
-	transition?: Transition;
-	className?: string;
-	defaultOpen?: boolean;
-	onOpenChange?: (open: boolean) => void;
-	open?: boolean;
-};
+import { cn } from "@/lib/utils"
 
 function Dialog({
-	children,
-	variants = defaultVariants,
-	transition = defaultTransition,
-	defaultOpen,
-	onOpenChange,
-	open,
-}: DialogProps) {
-	const [uncontrolledOpen, setUncontrolledOpen] = React.useState(
-		defaultOpen || false,
-	);
-	const dialogRef = useRef<HTMLDialogElement>(null);
-	const isOpen = open !== undefined ? open : uncontrolledOpen;
-
-	// prevent scroll when dialog is open on iOS
-	usePreventScroll({
-		isDisabled: !isOpen,
-	});
-
-	const setIsOpen = React.useCallback(
-		(value: boolean) => {
-			setUncontrolledOpen(value);
-			onOpenChange?.(value);
-		},
-		[onOpenChange],
-	);
-
-	useEffect(() => {
-		const dialog = dialogRef.current;
-		if (!dialog) return;
-
-		if (isOpen) {
-			document.body.classList.add("overflow-hidden");
-		} else {
-			document.body.classList.remove("overflow-hidden");
-		}
-
-		const handleCancel = (e: Event) => {
-			e.preventDefault();
-			if (isOpen) {
-				setIsOpen(false);
-			}
-		};
-
-		dialog.addEventListener("cancel", handleCancel);
-		return () => {
-			dialog.removeEventListener("cancel", handleCancel);
-			document.body.classList.remove("overflow-hidden");
-		};
-	}, [isOpen, setIsOpen, dialogRef]); // Keep dialogRef for dependency array size consistency, even though it's not used in the effect
-
-	useEffect(() => {
-		if (isOpen && dialogRef.current) {
-			dialogRef.current.showModal();
-		}
-	}, [isOpen]);
-
-	const handleTrigger = () => {
-		setIsOpen(true);
-	};
-
-	const onAnimationComplete = (definition: string) => {
-		if (definition === "exit" && !isOpen) {
-			dialogRef.current?.close();
-		}
-	};
-
-	const baseId = useId();
-	const ids = {
-		dialog: `motion-ui-dialog-${baseId}`,
-		title: `motion-ui-dialog-title-${baseId}`,
-		description: `motion-ui-dialog-description-${baseId}`,
-	};
-
-	return (
-		<DialogContext.Provider
-			value={{
-				isOpen,
-				setIsOpen,
-				dialogRef,
-				variants,
-				transition,
-				ids,
-				onAnimationComplete,
-				handleTrigger,
-			}}
-		>
-			{children}
-		</DialogContext.Provider>
-	);
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Root>) {
+  return <DialogPrimitive.Root data-slot="dialog" {...props} />
 }
 
-export type DialogTriggerProps = {
-	children: React.ReactNode;
-	className?: string;
-};
-
-function DialogTrigger({ children, className }: DialogTriggerProps) {
-	const context = useContext(DialogContext);
-	if (!context) throw new Error("DialogTrigger must be used within Dialog");
-
-	return (
-		<button
-			type="button"
-			onClick={context.handleTrigger}
-			className={cn(
-				"inline-flex items-center justify-center rounded-md text-sm font-medium",
-				"transition-colors focus-visible:ring-2 focus-visible:outline-hidden",
-				"focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
-				className,
-			)}
-		>
-			{children}
-		</button>
-	);
+function DialogTrigger({
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Trigger>) {
+  return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
 }
-
-export type DialogPortalProps = {
-	children: React.ReactNode;
-	container?: HTMLElement | null;
-};
 
 function DialogPortal({
-	children,
-	container = typeof window !== "undefined" ? document.body : null,
-}: DialogPortalProps) {
-	const [mounted, setMounted] = React.useState(false);
-	const [portalContainer, setPortalContainer] =
-		React.useState<HTMLElement | null>(null);
-
-	useEffect(() => {
-		setMounted(true);
-		setPortalContainer(container || document.body);
-		return () => setMounted(false);
-	}, [container]);
-
-	if (!mounted || !portalContainer) {
-		return null;
-	}
-
-	return createPortal(children, portalContainer);
-}
-export type DialogContentProps = {
-	children: React.ReactNode;
-	className?: string;
-	container?: HTMLElement;
-};
-
-function DialogContent({ children, className, container }: DialogContentProps) {
-	const context = useContext(DialogContext);
-	if (!context) throw new Error("DialogContent must be used within Dialog");
-	const {
-		isOpen,
-		setIsOpen,
-		dialogRef,
-		variants,
-		transition,
-		ids,
-		onAnimationComplete,
-	} = context;
-
-	const content = (
-		<AnimatePresence mode="wait">
-			{isOpen && (
-				<motion.dialog
-					key={ids.dialog}
-					ref={dialogRef as React.RefObject<HTMLDialogElement>}
-					id={ids.dialog}
-					aria-labelledby={ids.title}
-					aria-describedby={ids.description}
-					aria-modal="true"
-					onClick={(e) => {
-						if (e.target === dialogRef.current) {
-							setIsOpen(false);
-						}
-					}}
-					initial="initial"
-					animate="animate"
-					exit="exit"
-					variants={variants}
-					transition={transition}
-					onAnimationComplete={onAnimationComplete}
-					className={cn(
-						"fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 transform",
-						"rounded-lg p-6 shadow-lg",
-						"backdrop:bg-black/30 backdrop:backdrop-blur-sm",
-						"open:flex open:flex-col",
-						"w-full max-w-md",
-						className,
-					)}
-				>
-					<div className="w-full h-full">{children}</div>
-				</motion.dialog>
-			)}
-		</AnimatePresence>
-	);
-
-	return <DialogPortal container={container}>{content}</DialogPortal>;
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Portal>) {
+  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
 }
 
-export type DialogHeaderProps = {
-	children: React.ReactNode;
-	className?: string;
-};
-
-function DialogHeader({ children, className }: DialogHeaderProps) {
-	return (
-		<div className={cn("flex flex-col space-y-1.5 pb-4", className)}>
-			{children}
-		</div>
-	);
+function DialogClose({
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Close>) {
+  return <DialogPrimitive.Close data-slot="dialog-close" {...props} />
 }
 
-export type DialogTitleProps = {
-	children: React.ReactNode;
-	className?: string;
-};
-
-function DialogTitle({ children, className }: DialogTitleProps) {
-	const context = useContext(DialogContext);
-	if (!context) throw new Error("DialogTitle must be used within Dialog");
-
-	return (
-		<h2
-			id={context.ids.title}
-			className={cn("text-lg font-semibold leading-none tracking-tight", className)}
-		>
-			{children}
-		</h2>
-	);
+function DialogOverlay({
+  className,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
+  return (
+    <DialogPrimitive.Overlay
+      data-slot="dialog-overlay"
+      className={cn(
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50",
+        className
+      )}
+      {...props}
+    />
+  )
 }
 
-export type DialogDescriptionProps = {
-	children: React.ReactNode;
-	className?: string;
-};
-
-function DialogDescription({ children, className }: DialogDescriptionProps) {
-	const context = useContext(DialogContext);
-	if (!context) throw new Error("DialogDescription must be used within Dialog");
-
-	return (
-		<p
-			id={context.ids.description}
-			className={cn("text-sm text-muted-foreground", className)}
-		>
-			{children}
-		</p>
-	);
+function DialogContent({
+  className,
+  children,
+  showCloseButton = true,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Content> & {
+  showCloseButton?: boolean
+}) {
+  return (
+    <DialogPortal data-slot="dialog-portal">
+      <DialogOverlay />
+      <DialogPrimitive.Content
+        data-slot="dialog-content"
+        className={cn(
+          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 sm:max-w-lg",
+          className
+        )}
+        {...props}
+      >
+        {children}
+        {showCloseButton && (
+          <DialogPrimitive.Close
+            data-slot="dialog-close"
+            className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+          >
+            <XIcon />
+            <span className="sr-only">Close</span>
+          </DialogPrimitive.Close>
+        )}
+      </DialogPrimitive.Content>
+    </DialogPortal>
+  )
 }
 
-export type DialogCloseProps = {
-	className?: string;
-	children?: React.ReactNode;
-	disabled?: boolean;
-};
+function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-header"
+      className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
+      {...props}
+    />
+  )
+}
 
-function DialogClose({ className, children, disabled }: DialogCloseProps) {
-	const context = useContext(DialogContext);
-	if (!context) throw new Error("DialogClose must be used within Dialog");
+function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-footer"
+      className={cn(
+        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        className
+      )}
+      {...props}
+    />
+  )
+}
 
-	return (
-		<button
-			onClick={() => context.setIsOpen(false)}
-			type="button"
-			aria-label="Close dialog"
-			className={cn(
-				"absolute top-4 right-4 rounded-sm opacity-70 ring-offset-background transition-opacity",
-				"hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
-				"disabled:pointer-events-none",
-				className,
-			)}
-			disabled={disabled}
-		>
-			{children || <X className="h-4 w-4" />}
-			<span className="sr-only">Close</span>
-		</button>
-	);
+function DialogTitle({
+  className,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Title>) {
+  return (
+    <DialogPrimitive.Title
+      data-slot="dialog-title"
+      className={cn("text-lg leading-none font-semibold", className)}
+      {...props}
+    />
+  )
+}
+
+function DialogDescription({
+  className,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Description>) {
+  return (
+    <DialogPrimitive.Description
+      data-slot="dialog-description"
+      className={cn("text-muted-foreground text-sm", className)}
+      {...props}
+    />
+  )
 }
 
 export {
-	Dialog,
-	DialogClose,
-	DialogContent,
-	DialogDescription,
-	DialogHeader,
-	DialogTitle,
-	DialogTrigger,
-};
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogOverlay,
+  DialogPortal,
+  DialogTitle,
+  DialogTrigger,
+}

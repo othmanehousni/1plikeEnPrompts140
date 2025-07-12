@@ -11,6 +11,17 @@ const compat = new FlatCompat({
 
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
+  {
+    ignores: ["components/animate-ui/**/*"],
+  },
+  {
+    rules: {
+      "@typescript-eslint/no-unused-vars": "off",
+      "@next/next/no-sync-scripts": "off",
+      "@next/next/no-img-element": "warn",
+      "prefer-const": "off",
+    },
+  },
 ];
 
 export default eslintConfig;

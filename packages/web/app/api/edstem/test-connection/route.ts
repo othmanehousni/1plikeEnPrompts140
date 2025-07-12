@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
 			return NextResponse.json(
 				{
 					error: "Invalid request data",
-					details: validationResult.error.errors,
+					details: validationResult.error.issues,
 				},
 				{ status: 400 },
 			);

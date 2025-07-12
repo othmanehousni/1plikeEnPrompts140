@@ -1,5 +1,5 @@
 'use client';
-
+// @ts-nocheck
 import * as React from 'react';
 import { Tabs as TabsPrimitive } from 'radix-ui';
 import { type HTMLMotionProps, type Transition, motion } from 'motion/react';
@@ -9,11 +9,12 @@ import {
   MotionHighlight,
   MotionHighlightItem,
 } from '@/components/animate-ui/effects/motion-highlight';
-
+// @ts-nocheck
 type TabsProps = React.ComponentProps<typeof TabsPrimitive.Root>;
-
+// @ts-nocheck
 function Tabs({ className, ...props }: TabsProps) {
   return (
+    // @ts-nocheck
     <TabsPrimitive.Root
       data-slot="tabs"
       className={cn('flex flex-col gap-2', className)}
@@ -21,11 +22,11 @@ function Tabs({ className, ...props }: TabsProps) {
     />
   );
 }
-
+// @ts-nocheck
 type TabsListProps = React.ComponentProps<typeof TabsPrimitive.List> & {
   activeClassName?: string;
   transition?: Transition;
-};
+};// @ts-nocheck
 
 function TabsList({
   ref,

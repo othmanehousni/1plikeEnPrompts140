@@ -1,8 +1,7 @@
-import { SYSTEM_PROMPT } from "@/ai/prompts";
+import { memory } from "@/ai/mastra";
+import { createChatAgentWithModel } from "@/ai/agents/chat-agent";
 import type { modelID } from "@/ai/providers";
-import { openai } from "@ai-sdk/openai";
-import { streamText, type UIMessage } from "ai";
-import { searchEdCourse } from "@/ai/tools";
+import { type UIMessage } from "ai";
 import { validateEpflDomain } from "@/lib/auth-utils";
 import { NextRequest } from "next/server";
 
@@ -16,27 +15,75 @@ export async function POST(req: NextRequest) {
 		return validation.response!;
 	}
 
+	// Ensure user exists (should be guaranteed by validation)
+	if (!validation.user?.email) {
+		return new Response(
+			JSON.stringify({ error: "User email not found" }), 
+			{ 
+				status: 401,
+				headers: { "Content-Type": "application/json" }
+			}
+		);
+	}
+
 	const {
 		messages,
 		selectedModel,
-		selectedCourseId,
+		threadId,
 	}: {
 		messages: UIMessage[];
-		selectedModel: modelID;
-		selectedCourseId: string;
+		selectedModel?: modelID;
+		threadId?: string;
 	} = await req.json();
 
-	const result = streamText({
-		model: openai("gpt-4o-mini"),
-		system: SYSTEM_PROMPT,
-		messages,
-		
-		//tools: {
-		//	searchEdCourse: searchEdCourse(selectedCourseId),
-		//},
-	});
+	// Get agent with selected model or default
+	const agent = createChatAgentWithModel(memory, selectedModel || "o4-mini");
 
-	return result.toDataStreamResponse({
-		sendReasoning: true,
-	});
+	try {
+		// Use user email as resourceId for memory persistence
+		const resourceId = validation.user.email;
+		
+		// Get the latest user message
+		const userMessage = messages[messages.length - 1]?.content || "";
+
+		// Stream the agent response
+		const response = await agent.stream(userMessage, {
+			threadId: threadId || `thread_${Date.now()}`,
+			resourceId,
+		});
+
+		// Create a simple text stream for AI SDK text protocol
+		const stream = new ReadableStream({
+			async start(controller) {
+				try {
+					for await (const chunk of response.textStream) {
+						controller.enqueue(new TextEncoder().encode(chunk));
+					}
+					controller.close();
+				} catch (error) {
+					controller.error(error);
+				}
+			},
+		});
+
+		return new Response(stream, {
+			headers: {
+				"Content-Type": "text/plain; charset=utf-8",
+				"Cache-Control": "no-cache",
+			},
+		});
+
+	} catch (error) {
+		console.error("Chat API Error:", error);
+		return new Response(
+			JSON.stringify({ 
+				error: "Failed to process chat request",
+				details: error instanceof Error ? error.message : "Unknown error"
+			}),
+			{ 
+				status: 500,
+				headers: { "Content-Type": "application/json" }
+			}
+		);
+	}
 }

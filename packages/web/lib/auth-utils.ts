@@ -73,21 +73,25 @@ export async function validateEpflDomain(request: NextRequest): Promise<{
   }
 }
 
+interface RouteContext {
+  params?: Record<string, string | string[]>
+}
+
 /**
  * Middleware wrapper for API routes that require EPFL domain validation
  * @param handler - The API route handler function
  * @returns Wrapped handler with domain validation
  */
 export function withEpflDomainValidation(
-  handler: (request: NextRequest, context: any, user: any) => Promise<NextResponse>
+  handler: (request: NextRequest, context: RouteContext, user: User) => Promise<NextResponse>
 ) {
-  return async (request: NextRequest, context: any) => {
+  return async (request: NextRequest, context: RouteContext) => {
     const validation = await validateEpflDomain(request)
     
     if (!validation.isValid) {
       return validation.response!
     }
 
-    return handler(request, context, validation.user)
+    return handler(request, context, validation.user!)
   }
 } 
