@@ -1,6 +1,6 @@
 import { createChatAgentWithModel } from "@/ai/agents/chat-agent";
 import type { modelID } from "@/ai/providers";
-import { streamText, convertToCoreMessages, Message } from "ai";
+import { streamText, convertToCoreMessages, Message, smoothStream } from "ai";
 import { NextRequest } from "next/server";
 
 // Allow streaming responses up to 30 seconds
@@ -77,6 +77,10 @@ export async function POST(req: NextRequest) {
 			// tools: agent.tools, // Temporarily disabled
 			temperature: 0.7,
 			maxTokens: 1000,
+			experimental_transform: smoothStream({
+				delayInMs: 20, // optional: defaults to 10ms
+				chunking: 'word', // optional: defaults to 'word'
+			  }),
 		});
 		console.log('🔍 [Chat API] StreamText completed, returning response');
 
