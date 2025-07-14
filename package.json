@@ -2,6 +2,7 @@
   "name": "ask-ed-monorepo",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "bun@1.2.10",
   "workspaces": [
     "packages/*"
   ],
@@ -10,7 +11,7 @@
     "dev:split": "./scripts/dev-split.sh",
     "dev:web": "bun --cwd packages/web dev",
     "dev:extension": "bun --cwd packages/extension dev",
-    "build": "./scripts/build.sh",
+    "build": "turbo run build",
     "build:web": "bun --cwd packages/web build",
     "build:extension": "bun --cwd packages/extension build",
     "build:shared": "bun --cwd packages/shared build",
@@ -22,6 +23,7 @@
     "db:studio": "bun --cwd packages/web drizzle-kit studio"
   },
   "devDependencies": {
+    "turbo": "^2.5.4",
     "typescript": "^5"
   },
   "dependencies": {

@@ -1,0 +1,10 @@
+
+[0m[2m[35m$[0m [2m[1mplasmo build[0m
+🟣 Plasmo v0.90.3
+🔴 The Browser Extension Framework
+🔵 INFO   | Prepare to bundle the extension...
+🔵 INFO   | Building for target: chrome-mv3
+🔵 INFO   | Loaded environment variables from: []
+🟠 WARN   | [93mA new version of plasmo is available: v0.90.5[39m
+          | [33mRun "pnpm i plasmo@0.90.5" to update[39m
+🟢 DONE   | Finished in 1810ms!
