@@ -6,7 +6,6 @@ import { validateEpflDomain } from "@/lib/auth-utils";
 const syncRequestSchema = z.object({
 	apiKey: z.string().min(1),
 	courseId: z.number().optional(),
-	togetherApiKey: z.string().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -40,7 +39,7 @@ export async function POST(req: NextRequest) {
 			);
 		}
 
-		const { apiKey, courseId, togetherApiKey } = validationResult.data;
+		const { apiKey, courseId } = validationResult.data;
 
 		if (!apiKey) {
 			return NextResponse.json(
@@ -50,18 +49,18 @@ export async function POST(req: NextRequest) {
 		}
 
 		console.log(
-			`Starting EdStem sync${courseId ? ` for course ID ${courseId}` : ""}${togetherApiKey ? " with vector embeddings" : ""}`,
+			`Starting EdStem sync${courseId ? ` for course ID ${courseId}` : ""} with Upstash Vector integration`,
 		);
 
 		// Sync courses with database
-		const syncResult = await syncEdStemCourses({ apiKey, courseId, togetherApiKey });
+		const syncResult = await syncEdStemCourses({ apiKey, courseId });
 
 		return NextResponse.json({
 			success: true,
 			message: `Synced ${syncResult.count} courses from EdStem`,
 			synced: syncResult.results,
 			lastSynced: syncResult.lastSynced,
-			embeddings: !!togetherApiKey,
+			vectorEnabled: !!(process.env.UPSTASH_VECTOR_REST_URL && process.env.UPSTASH_VECTOR_REST_TOKEN),
 		});
 	} catch (error) {
 		console.error("Error syncing EdStem data:", error);

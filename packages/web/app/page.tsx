@@ -13,7 +13,7 @@ import Chat from "@/components/chat/chat";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { EdStemSyncButton } from "@/components/layout/settings/edstem-sync-button";
 import { Button } from "@/components/ui/button";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Plus } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { useRevocationHandler } from "@/hooks/use-revocation-handler";
 import { ThreadsButton } from "@/components/chat/threads-button";
@@ -130,9 +130,9 @@ function SyncButton() {
 
 			// Show success message with course count if available
 			if (data.count !== undefined) {
-				const embedMessage = data.embeddings ? " with vector embeddings" : "";
+				const vectorMessage = data.vectorEnabled ? " with vector search enabled" : "";
 				showError(
-					`Success: Successfully synced ${data.count} courses${embedMessage}`,
+					`Success: Successfully synced ${data.count} courses${vectorMessage}`,
 				);
 			}
 		} catch (err) {
@@ -164,6 +164,26 @@ function SyncButton() {
 			<div className="absolute top-full right-0 mt-2 bg-card/95 dark:bg-card/95 border rounded-md px-3 py-2 shadow-md text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none whitespace-nowrap z-10">
 				Last Sync:{" "}
 				{lastSyncedAt ? new Date(lastSyncedAt).toLocaleString() : "Never"}
+			</div>
+		</div>
+	);
+}
+
+// New chat button component
+function NewChatButton({ onNewChat }: { onNewChat: () => void }) {
+	return (
+		<div className="relative group">
+			<Button
+				size="sm"
+				variant="outline"
+				onClick={onNewChat}
+				className="gap-2"
+			>
+				<Plus className="h-4 w-4" />
+				New Chat
+			</Button>
+			<div className="absolute top-full right-0 mt-2 bg-card/95 dark:bg-card/95 border rounded-md px-3 py-2 shadow-md text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none whitespace-nowrap z-10">
+				Start a new conversation
 			</div>
 		</div>
 	);
@@ -350,6 +370,7 @@ export default function Home() {
 			{/* Theme Toggle Button and Sync Button - Top Right */}
 			<div className="fixed top-4 right-4 flex items-center gap-3 z-50">
 				{isAuthenticated && <ThreadsButton onThreadSelect={handleChatSelect} />}
+				{isAuthenticated && <NewChatButton onNewChat={startNewChat} />}
 				{isAuthenticated && <SyncButton />}
 				<ThemeToggle />
 				{isAuthenticated && <SettingsButton />}

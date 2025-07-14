@@ -2,6 +2,9 @@ import { createChatAgentWithModel } from "@/ai/agents/chat-agent";
 import type { modelID } from "@/ai/providers";
 import { streamText, convertToCoreMessages, Message, smoothStream } from "ai";
 import { NextRequest } from "next/server";
+import { validateEpflDomain } from "@/lib/auth-utils";
+import { db } from "@/lib/db";
+import { courses } from "@/lib/db/schema";
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -9,6 +12,12 @@ export const maxDuration = 30;
 export async function POST(req: NextRequest) {
 	console.log('🔍 [Chat API] POST request received');
 	
+	// Validate EPFL domain before processing request
+	const validation = await validateEpflDomain(req);
+	if (!validation.isValid) {
+		return validation.response!;
+	}
+
 	// Check OpenAI API key
 	if (!process.env.OPENAI_API_KEY) {
 		console.error('❌ [Chat API] OpenAI API key not found');
@@ -54,9 +63,31 @@ export async function POST(req: NextRequest) {
 			);
 		}
 
+		// Get user's available courses for RAG context
+		let userCourses: Array<{id: number, code: string, name: string}> = [];
+		try {
+			const dbCourses = await db.query.courses.findMany({
+				columns: {
+					id: true,
+					code: true,
+					name: true
+				},
+				orderBy: (courses, { asc }) => [asc(courses.code)]
+			});
+			userCourses = dbCourses.map(course => ({
+				id: course.id,
+				code: course.code || '',
+				name: course.name || ''
+			}));
+			console.log('🔍 [Chat API] Found', userCourses.length, 'available courses for RAG');
+		} catch (coursesError) {
+			console.error('⚠️ [Chat API] Failed to fetch courses:', coursesError);
+			// Continue without courses - RAG will be limited but chat still works
+		}
+
 		// Get agent configuration with selected model or default
 		console.log('🔍 [Chat API] Creating agent with model:', selectedModel || "gpt-4.1");
-		const agent = createChatAgentWithModel(selectedModel || "gpt-4.1");
+		const agent = createChatAgentWithModel(selectedModel || "gpt-4.1", userCourses);
 		console.log('🔍 [Chat API] Agent created successfully');
 
 		// Convert messages to core messages for AI SDK
@@ -69,12 +100,12 @@ export async function POST(req: NextRequest) {
 		console.log('🔍 [Chat API] Agent model:', agent.model);
 		console.log('🔍 [Chat API] Agent tools:', Object.keys(agent.tools || {}));
 		
-		// Try without tools first to isolate the issue
+		// Enable tools for RAG functionality
 		const result = await streamText({
 			model: agent.model,
 			system: agent.instructions,
 			messages: coreMessages,
-			// tools: agent.tools, // Temporarily disabled
+			// tools: agent.tools, // Temporarily disabled to fix streaming error
 			temperature: 0.7,
 			maxTokens: 1000,
 			experimental_transform: smoothStream({

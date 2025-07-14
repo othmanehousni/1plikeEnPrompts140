@@ -4,8 +4,8 @@ import { eq, and, count, sql, desc } from "drizzle-orm";
 import { z } from "zod";
 import { EDClient } from "@/lib/ed-client";
 import { EDCourse, EDUserCourseEntry, type EDListedThread, type EDThread, type EDAnswer } from "@/types/schema/ed.schema";
+import { Index } from "@upstash/vector";
 import { 
-  generateEmbeddings, 
   prepareThreadTextForEmbedding, 
   prepareAnswerTextForEmbedding 
 } from "@/lib/embeddings";
@@ -51,7 +51,6 @@ export type CourseRecord = {
 export type EdStemSyncOptions = {
 	apiKey: string;
 	courseId?: number;
-  togetherApiKey?: string;
 };
 
 const EU_EDSTEM_USER_ENDPOINT = "https://eu.edstem.org/api/user";
@@ -74,7 +73,7 @@ export async function testEdStemConnection(apiKey: string): Promise<string | und
 	}
 }
 
-async function syncAnswersForThread(threadId: number, client: EDClient, togetherApiKey?: string): Promise<AnswerSyncStats> {
+async function syncAnswersForThread(threadId: number, client: EDClient): Promise<AnswerSyncStats> {
 	// Log uniquement pour thread spécial
 	const isSpecialThread = threadId === 182914;
 	if (isSpecialThread) {
@@ -165,46 +164,12 @@ async function syncAnswersForThread(threadId: number, client: EDClient, together
 					updatedAt: new Date(edAnswer.updated_at),
 				};
 
-        // Generate embedding only for new answers or if answer content is updated
-        let embedding = null;
-        const needsEmbedding = !existingAnswer || 
-          (existingAnswer.updatedAt && 
-           new Date(edAnswer.updated_at).getTime() > existingAnswer.updatedAt.getTime());
-        
-        if (togetherApiKey && edAnswer.message && needsEmbedding) {
-          // Log uniquement pour thread spécial
-          if (isSpecialThread) {
-            console.log(`[EDSTEM.ts] 🧠 Generating embedding for answer ${edAnswer.id} in thread #182914`);
-          }
-          
-          const textForEmbedding = prepareAnswerTextForEmbedding(edAnswer.message as string);
-          
-          // Add timeout protection for embedding generation
-          const embeddingPromise = generateEmbeddings(textForEmbedding, togetherApiKey);
-          const timeoutPromise = new Promise<null>((_, reject) => 
-            setTimeout(() => reject(new Error("Embedding generation timeout")), 20000)
-          );
-          
-          try {
-            embedding = await Promise.race([embeddingPromise, timeoutPromise]);
-            
-            // Log uniquement pour thread spécial
-            if (isSpecialThread && embedding) {
-              console.log(`[EDSTEM.ts] ✅ Generated embedding for answer ${edAnswer.id} in thread #182914`);
-            }
-          } catch (embeddingError) {
-            console.error(`[EDSTEM.ts] ⚠️ Embedding generation failed for answer ${edAnswer.id}:`, embeddingError);
-            // Continue without embedding rather than failing the whole sync
-          }
-        }
-
 				if (existingAnswer) {
 					if (existingAnswer.updatedAt && new Date(edAnswer.updated_at).getTime() > existingAnswer.updatedAt.getTime()) {
 						await db.update(answers)
 							.set({ 
                 ...answerData, 
-                updatedAt: new Date(edAnswer.updated_at),
-                ...(embedding ? { embedding } : {})
+                updatedAt: new Date(edAnswer.updated_at)
               })
 							.where(eq(answers.id, edAnswer.id));
 						answersUpdated++;
@@ -212,8 +177,7 @@ async function syncAnswersForThread(threadId: number, client: EDClient, together
 				} else {
 					await db.insert(answers).values({ 
             id: edAnswer.id, 
-            ...answerData,
-            ...(embedding ? { embedding } : {})
+            ...answerData
           });
 					answersInserted++;
 				}
@@ -238,7 +202,7 @@ async function syncAnswersForThread(threadId: number, client: EDClient, together
 	}
 }
 
-async function syncThreadsForCourse(courseId: number, client: EDClient, courseName: string = "", togetherApiKey?: string): Promise<ThreadSyncStats> {
+async function syncThreadsForCourse(courseId: number, client: EDClient, courseName: string = ""): Promise<ThreadSyncStats> {
 	console.log(`[EDSTEM.ts] 🔄 Syncing threads for course ${courseName || courseId}...`);
 	let edThreadsFromAPI: EDListedThread[] = []; 
 	let currentPage = 0;
@@ -403,47 +367,6 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, courseNa
 					images: client.extractImageUrls(edThread.content as string),
 				};
 
-        // Generate embedding ONLY for NEW threads, pas pour les mises à jour
-        let embedding = null;
-        const isNewThread = !existingThread;
-        
-        if (togetherApiKey && isNewThread) {
-          // Log uniquement pour thread spécial
-          if (edThread.id === 182914) {
-            console.log(`[EDSTEM.ts] 🧠 Generating embedding for NEW thread #182914`);
-          }
-          
-          const textForEmbedding = prepareThreadTextForEmbedding(
-            edThread.title,
-            typeof edThread.document === 'string' ? edThread.document : null,
-            edThread.category,
-            edThread.subcategory
-          );
-          
-          // Add timeout protection for embedding generation
-          const embeddingPromise = generateEmbeddings(textForEmbedding, togetherApiKey);
-          const timeoutPromise = new Promise<null>((_, reject) => 
-            setTimeout(() => reject(new Error("Embedding generation timeout")), 20000)
-          );
-          
-          try {
-            embedding = await Promise.race([embeddingPromise, timeoutPromise]);
-            
-            // Log uniquement pour thread spécial
-            if (edThread.id === 182914 && embedding) {
-              console.log(`[EDSTEM.ts] ✅ Generated embedding for thread #182914`);
-            }
-          } catch (embeddingError) {
-            console.error(`[EDSTEM.ts] ⚠️ Embedding generation failed for thread ${edThread.id}:`, embeddingError);
-            // Continue without embedding rather than failing the whole sync
-          }
-        }
-
-				// Débogage spécifique pour thread 182914
-				if (edThread.id === 182914) {
-					console.log(`[EDSTEM.ts] 🧪 Thread #182914 - Étape de mise à jour DB - existingThread:`, existingThread ? 'trouvé' : 'non trouvé');
-				}
-				
 				if (existingThread) {
 					// Ne vérifier les réponses que si le thread a été mis à jour
 					let needSyncAnswers = false;
@@ -453,8 +376,7 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, courseNa
 						await db.update(threads)
 							.set({ 
                 ...threadData, 
-                updatedAt: new Date(edThread.updated_at),
-                ...(embedding ? { embedding } : {})
+                updatedAt: new Date(edThread.updated_at)
               })
 							.where(eq(threads.id, edThread.id));
 						threadsUpdated++;
@@ -466,14 +388,13 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, courseNa
 					
 					// Ne synchroniser les réponses que si le thread a été mis à jour
 					if (needSyncAnswers) {
-						await syncAnswersForThread(edThread.id, client, togetherApiKey);
+						await syncAnswersForThread(edThread.id, client);
 					}
 				} else {
 					try {
 						await db.insert(threads).values({ 
 							id: edThread.id, 
-							...threadData,
-							...(embedding ? { embedding } : {})
+							...threadData
 						});
 
 						threadsInserted++;
@@ -487,7 +408,7 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, courseNa
 					}
 					
 					// Synchroniser les réponses pour ce nouveau thread
-					await syncAnswersForThread(edThread.id, client, togetherApiKey);
+					await syncAnswersForThread(edThread.id, client);
 				}
 			} catch (error) {
 				threadsErrored++;
@@ -507,19 +428,119 @@ async function syncThreadsForCourse(courseId: number, client: EDClient, courseNa
 	}
 }
 
+/**
+ * Batch sync vectors for a course after PostgreSQL sync is complete
+ */
+async function batchSyncVectorsForCourse(courseId: number, vectorIndex: Index, batchSize: number = 1000): Promise<void> {
+	console.log(`[EDSTEM.ts] 🔄 Starting batch vector sync for course ${courseId}...`);
+	
+	try {
+		// Get all threads for the course from PostgreSQL
+		const courseThreads = await db.query.threads.findMany({
+			where: eq(threads.courseId, courseId),
+			with: {
+				answers: true
+			}
+		});
+
+		console.log(`[EDSTEM.ts] 📊 Found ${courseThreads.length} threads to sync to vectors`);
+
+		// Prepare all vector data
+		const vectorData = [];
+		let totalAnswers = 0;
+
+		for (const thread of courseThreads) {
+			// Add thread vector data
+			const threadText = prepareThreadTextForEmbedding(
+				thread.title ?? "",
+				thread.message ?? "",
+				thread.category ?? null,
+				thread.subcategory ?? null
+			);
+
+			vectorData.push({
+				id: `thread-${thread.id}`,
+				data: threadText,
+				metadata: {
+					type: "thread",
+					courseId: thread.courseId,
+					threadId: thread.id,
+					title: thread.title ?? undefined,
+					content: threadText,
+				},
+			});
+
+			// Add answer vector data
+			for (const answer of thread.answers) {
+				const answerText = prepareAnswerTextForEmbedding(answer.message ?? "");
+				
+				vectorData.push({
+					id: `answer-${answer.id}`,
+					data: answerText,
+					metadata: {
+						type: "answer",
+						threadId: thread.id,
+						courseId: thread.courseId,
+						isResolved: answer.isResolved ?? false,
+						content: answerText,
+					},
+				});
+				totalAnswers++;
+			}
+		}
+
+		console.log(`[EDSTEM.ts] 📊 Prepared ${vectorData.length} vectors (${courseThreads.length} threads + ${totalAnswers} answers)`);
+
+		// Batch upsert vectors
+		const namespace = String(courseId);
+		let processed = 0;
+
+		for (let i = 0; i < vectorData.length; i += batchSize) {
+			const batch = vectorData.slice(i, i + batchSize);
+			
+			try {
+				// Use batch upsert - pass array of vectors and namespace
+				await vectorIndex.upsert(batch, { namespace });
+				processed += batch.length;
+				
+				console.log(`[EDSTEM.ts] ✅ Batch ${Math.ceil((i + 1) / batchSize)} completed: ${processed}/${vectorData.length} vectors`);
+				
+				// Small delay to avoid overwhelming the API
+				await new Promise(resolve => setTimeout(resolve, 100));
+			} catch (batchError) {
+				console.error(`[EDSTEM.ts] ❌ Batch ${Math.ceil((i + 1) / batchSize)} failed:`, batchError);
+				// Continue with next batch instead of failing entirely
+			}
+		}
+
+		console.log(`[EDSTEM.ts] ✅ Batch vector sync completed for course ${courseId}: ${processed}/${vectorData.length} vectors synced`);
+
+	} catch (error) {
+		console.error(`[EDSTEM.ts] ❌ Failed to batch sync vectors for course ${courseId}:`, error);
+		throw error;
+	}
+}
+
 export async function syncEdStemCourses(options: EdStemSyncOptions): Promise<{
     count: number;
     results: CourseSyncResult[];
     lastSynced: Date | null;
 }> {
-	const { apiKey, courseId, togetherApiKey } = options;
+	const { apiKey, courseId } = options;
+	
+	// Create Upstash Vector index if credentials are available
+	let vectorIndex: Index | undefined;
+	if (process.env.UPSTASH_VECTOR_REST_URL && process.env.UPSTASH_VECTOR_REST_TOKEN) {
+		vectorIndex = new Index({
+			url: process.env.UPSTASH_VECTOR_REST_URL,
+			token: process.env.UPSTASH_VECTOR_REST_TOKEN,
+		});
+		console.log("[EDSTEM.ts] 🔗 Upstash Vector integration enabled for automatic embedding");
+	} else {
+		console.log("[EDSTEM.ts] ⚠️ Upstash Vector credentials not found, vector search will be disabled");
+	}
+	
 	const client = new EDClient(apiKey);
-
-  if (togetherApiKey) {
-    console.log("[EDSTEM.ts] 🧠 Vector embeddings will be generated using Together AI");
-  } else {
-    console.log("[EDSTEM.ts] ⚠️ No Together API key provided, skipping vector embedding generation");
-  }
 
 	try {
 		const coursesResp = await client.getCourses();
@@ -590,8 +611,20 @@ export async function syncEdStemCourses(options: EdStemSyncOptions): Promise<{
 					courseActionResult.action = "inserted";
 				}
 				
-				const threadSyncStats = await syncThreadsForCourse(edCourse.id, client, courseName, togetherApiKey);
+				const threadSyncStats = await syncThreadsForCourse(edCourse.id, client, courseName);
 				courseActionResult.threads = threadSyncStats;
+				
+				// Batch sync vectors after PostgreSQL sync is complete
+				if (vectorIndex) {
+					try {
+						await batchSyncVectorsForCourse(edCourse.id, vectorIndex);
+						console.log(`[EDSTEM.ts] ✅ Vector sync completed for course "${courseName}"`);
+					} catch (vectorError) {
+						console.error(`[EDSTEM.ts] ⚠️ Vector sync failed for course "${courseName}":`, vectorError);
+						// Don't fail the entire sync if vectors fail
+					}
+				}
+				
 				console.log(`[EDSTEM.ts] ✅ Course "${courseName}" sync completed successfully!`);
 
 			} catch (error) {

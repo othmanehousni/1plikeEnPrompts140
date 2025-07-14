@@ -4,7 +4,7 @@ import { defaultModel, getProviderOptions, type modelID } from "@/ai/providers";
 import { PromptInputWithActions } from "@/components/chat/input";
 import { Messages } from "@/components/chat/messages";
 import { useChat } from "@ai-sdk/react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { 
   createChat, 
@@ -23,7 +23,7 @@ export default function Chat({ chatId: propChatId, onChatChange }: ChatProps = {
   const [selectedModel, setSelectedModel] = useState<modelID>(defaultModel);
   const [chatId, setChatId] = useState<string | null>(propChatId || null);
   const [isInitialized, setIsInitialized] = useState(false);
-  const [currentSubmissionChatId, setCurrentSubmissionChatId] = useState<string | null>(null);
+  const submissionChatIdRef = useRef<string | null>(null);
 
   // Initialize local database
   useEffect(() => {
@@ -41,20 +41,11 @@ export default function Chat({ chatId: propChatId, onChatChange }: ChatProps = {
     init();
   }, []);
 
-  // Update chat ID when prop changes
-  useEffect(() => {
-    if (propChatId && propChatId !== chatId) {
-      console.log('🔍 [Chat] ChatId changed from', chatId, 'to', propChatId);
-      setChatId(propChatId);
-    }
-  }, [propChatId, chatId]);
-
   const { messages, input, handleInputChange, handleSubmit, status, stop, setMessages } =
     useChat({
       api: '/api/chat',
       body: {
         selectedModel,
-        chatId,
       },
       initialMessages: [],
       onError: (error) => {
@@ -68,30 +59,25 @@ export default function Chat({ chatId: propChatId, onChatChange }: ChatProps = {
         );
       },
       onFinish: async (message) => {
+        const chatIdToUse = submissionChatIdRef.current;
         console.log('🚨 [Chat] ===== ONFINISH CALLBACK TRIGGERED =====');
         console.log('✅ [Chat] useChat onFinish called with message:', message);
-        console.log('✅ [Chat] Current chatId:', chatId);
-        console.log('✅ [Chat] Current currentSubmissionChatId:', currentSubmissionChatId);
+        console.log('✅ [Chat] chatId from ref:', chatIdToUse);
         console.log('✅ [Chat] Message content:', message.content);
         console.log('✅ [Chat] Message role:', message.role);
-        
-        // Use the currentSubmissionChatId if available, otherwise fall back to chatId
-        const chatIdToUse = currentSubmissionChatId || chatId;
-        
+
         // Save assistant message to local database
         if (chatIdToUse) {
           try {
             const savedMessage = await createMessage(chatIdToUse, 'assistant', message.content);
             console.log('✅ [Chat] Assistant message saved to local database:', savedMessage);
-            
-            // Clear the submission chat ID after saving
-            setCurrentSubmissionChatId(null);
           } catch (error) {
             console.error('❌ [Chat] Failed to save assistant message:', error);
           }
         } else {
           console.log('⚠️ [Chat] No chatId available, cannot save assistant message');
         }
+        submissionChatIdRef.current = null; // Reset ref
       },
       onResponse: (response) => {
         console.log('🔍 [Chat] useChat onResponse called:', response);
@@ -101,11 +87,31 @@ export default function Chat({ chatId: propChatId, onChatChange }: ChatProps = {
       },
     });
 
+  // Update chat ID when prop changes
+  useEffect(() => {
+    if (propChatId && propChatId !== chatId) {
+      console.log('🔍 [Chat] ChatId changed from', chatId, 'to', propChatId);
+      setChatId(propChatId);
+    } else if (propChatId === '' && chatId !== null) {
+      // Handle new chat (empty string means start fresh)
+      console.log('🔍 [Chat] Starting new chat - clearing messages and chatId');
+      setChatId(null);
+      setMessages([]);
+      submissionChatIdRef.current = null;
+    }
+  }, [propChatId, chatId, setMessages]);
+
   // Load existing messages when chatId changes
   useEffect(() => {
     const loadExistingMessages = async () => {
-      if (!chatId || !isInitialized) {
-        console.log('🔍 [Chat] Skipping message loading - chatId:', chatId, 'isInitialized:', isInitialized);
+      if (!isInitialized) {
+        console.log('🔍 [Chat] Skipping message loading - not initialized');
+        return;
+      }
+
+      if (!chatId) {
+        console.log('🔍 [Chat] No chatId - clearing messages for new chat');
+        setMessages([]);
         return;
       }
 
@@ -186,10 +192,7 @@ export default function Chat({ chatId: propChatId, onChatChange }: ChatProps = {
     }
   }, [messages, chatId, status]);
   
-  // Debug currentSubmissionChatId changes
-  useEffect(() => {
-    console.log('🔍 [Chat] currentSubmissionChatId changed to:', currentSubmissionChatId);
-  }, [currentSubmissionChatId]);
+
 
   // Function to generate chat title using server-side API
   const generateChatTitle = async (message: string): Promise<string> => {
@@ -242,9 +245,7 @@ export default function Chat({ chatId: propChatId, onChatChange }: ChatProps = {
         console.log('✅ [Chat] Created new chat:', currentChatId);
       }
 
-      // Set the current submission chat ID for the onFinish callback
-      setCurrentSubmissionChatId(currentChatId);
-      console.log('🔍 [Chat] Set currentSubmissionChatId to:', currentChatId);
+      submissionChatIdRef.current = currentChatId;
 
       // Save user message to local database
       if (currentChatId) {
@@ -258,8 +259,7 @@ export default function Chat({ chatId: propChatId, onChatChange }: ChatProps = {
       console.log('🔍 [Chat] Current status:', status);
       console.log('🔍 [Chat] Current chatId before submit:', currentChatId);
       
-      const result = handleSubmit(e);
-      console.log('🔍 [Chat] handleSubmit result:', result);
+      handleSubmit(e, { data: { chatId: currentChatId } });
       console.log('🔍 [Chat] ChatId after submit:', chatId);
       
     } catch (error) {
@@ -272,7 +272,7 @@ export default function Chat({ chatId: propChatId, onChatChange }: ChatProps = {
   const startNewChat = () => {
     setChatId(null);
     setMessages([]);
-    setCurrentSubmissionChatId(null);
+    submissionChatIdRef.current = null;
     onChatChange?.('');
   };
 
