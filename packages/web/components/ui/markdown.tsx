@@ -2,6 +2,8 @@ import { cn } from "@/lib/utils"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkBreaks from "remark-breaks"
 import remarkGfm from "remark-gfm"
+import remarkMath from "remark-math"
+import rehypeKatex from "rehype-katex"
 import { CodeBlock, CodeBlockCode } from "./code-block"
 
 export type MarkdownProps = {
@@ -50,6 +52,35 @@ const INITIAL_COMPONENTS: Partial<Components> = {
   pre: function PreComponent({ children }) {
     return <>{children}</>
   },
+  // Math equation components for better styling
+  span: function SpanComponent({ className, children, ...props }) {
+    // Handle inline math equations
+    if (className?.includes('math-inline')) {
+      return (
+        <span 
+          className={cn('katex-inline', className)} 
+          {...props}
+        >
+          {children}
+        </span>
+      )
+    }
+    return <span className={className} {...props}>{children}</span>
+  },
+  div: function DivComponent({ className, children, ...props }) {
+    // Handle display math equations
+    if (className?.includes('math-display')) {
+      return (
+        <div 
+          className={cn('katex-display my-4 overflow-x-auto', className)} 
+          {...props}
+        >
+          {children}
+        </div>
+      )
+    }
+    return <div className={className} {...props}>{children}</div>
+  },
 }
 
 export function Markdown({
@@ -61,7 +92,8 @@ export function Markdown({
   return (
     <div className={cn("prose w-full max-w-full min-w-0 overflow-hidden break-words", className)}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkBreaks]}
+        remarkPlugins={[remarkGfm, remarkBreaks, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
         components={components}
       >
         {children}

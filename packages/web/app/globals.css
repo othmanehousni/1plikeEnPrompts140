@@ -2,6 +2,9 @@
 
 @import "tw-animate-css";
 
+/* KaTeX CSS for math equation rendering */
+@import "katex/dist/katex.min.css";
+
 @custom-variant dark (&:is(.dark *));
 
 :root {
@@ -305,4 +308,50 @@
     background-color: var(--color-muted);
     font-weight: 600;
   }
+}
+
+/* KaTeX Math Equation Styling */
+.katex {
+  font-size: 1em !important;
+  line-height: 1.2 !important;
+}
+
+.katex-display {
+  margin: 1rem 0 !important;
+  text-align: center !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+}
+
+.katex-inline {
+  display: inline-block !important;
+  vertical-align: baseline !important;
+}
+
+/* Dark mode adjustments for KaTeX */
+.dark .katex {
+  color: var(--foreground) !important;
+}
+
+.dark .katex .base {
+  color: var(--foreground) !important;
+}
+
+.dark .katex .mord,
+.dark .katex .mop,
+.dark .katex .mbin,
+.dark .katex .mrel,
+.dark .katex .mopen,
+.dark .katex .mclose,
+.dark .katex .mpunct {
+  color: var(--foreground) !important;
+}
+
+/* Ensure math equations don't break layout */
+.prose .katex-display {
+  max-width: 100% !important;
+}
+
+.prose .katex-inline {
+  word-break: normal !important;
 }

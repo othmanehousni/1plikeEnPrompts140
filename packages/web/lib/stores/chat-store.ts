@@ -6,24 +6,31 @@ import {
   createMessage,
 } from "@/lib/db/local";
 import type { Message } from "ai";
+import { defaultModel, type modelID } from "@/ai/providers";
 
 interface ChatState {
   chatId: string | null;
   messages: Message[];
+  selectedModel: modelID;
   isInitialized: boolean;
   isLoadingMessages: boolean;
+  
+  // Core methods
   initialize: () => Promise<void>;
   setChatId: (chatId: string | null) => void;
-  startNewChat: () => void;
-  loadChat: (chatId: string) => Promise<void>;
-  addMessage: (message: Message) => void;
+  setSelectedModel: (model: modelID) => void;
   setMessages: (messages: Message[]) => void;
-  createAndSwitchToNewChat: (firstMessageContent: string) => Promise<string>;
+  
+  // Chat operations
+  loadChat: (chatId: string) => Promise<Message[]>;
+  createNewChat: (firstMessageContent: string) => Promise<string>;
+  clearCurrentChat: () => void;
 }
 
 const useChatStoreImplementation = create<ChatState>((set, get) => ({
   chatId: null,
   messages: [],
+  selectedModel: defaultModel,
   isInitialized: false,
   isLoadingMessages: false,
 
@@ -32,38 +39,36 @@ const useChatStoreImplementation = create<ChatState>((set, get) => ({
     try {
       await initializeLocalDatabase();
       set({ isInitialized: true });
-      console.log('✅ [ChatStore] Local database initialized');
+      console.log('✅ [ChatStore] Database initialized');
     } catch (error) {
-      console.error('❌ [ChatStore] Failed to initialize local database:', error);
+      console.error('❌ [ChatStore] Failed to initialize database:', error);
     }
   },
 
   setChatId: (chatId: string | null) => {
     console.log('🔍 [ChatStore] Setting chatId to:', chatId);
-    if (get().chatId === chatId) return;
-    
     set({ chatId });
-
-    if (chatId) {
-      get().loadChat(chatId);
-    } else {
-      set({ messages: [] });
-    }
+    // Don't automatically load - let components control when to load
   },
 
-  startNewChat: () => {
-    console.log('🔍 [ChatStore] Starting new chat');
-    get().setChatId(null);
+  setSelectedModel: (model: modelID) => {
+    set({ selectedModel: model });
   },
 
-  loadChat: async (chatId: string) => {
+  setMessages: (messages: Message[]) => {
+    set({ messages });
+  },
+
+  loadChat: async (chatId: string): Promise<Message[]> => {
     if (!get().isInitialized) {
       await get().initialize();
     }
+    
     set({ isLoadingMessages: true });
     try {
-      console.log('🔍 [ChatStore] Loading messages for chat:', chatId);
+      console.log('🔍 [ChatStore] Loading chat:', chatId);
       const { chat, messages: dbMessages } = await getChatWithMessages(chatId);
+      
       if (chat) {
         const aiMessages = dbMessages.map((msg) => ({
           id: msg.id,
@@ -71,29 +76,29 @@ const useChatStoreImplementation = create<ChatState>((set, get) => ({
           content: msg.content,
           createdAt: new Date(msg.createdAt),
         }));
+        
         set({ messages: aiMessages });
         console.log('✅ [ChatStore] Loaded', aiMessages.length, 'messages');
+        return aiMessages;
       } else {
         set({ messages: [] });
         console.log('🔍 [ChatStore] Chat not found:', chatId);
+        return [];
       }
     } catch (error) {
       console.error('❌ [ChatStore] Error loading messages:', error);
       set({ messages: [] });
+      return [];
     } finally {
       set({ isLoadingMessages: false });
     }
   },
 
-  addMessage: (message: Message) => {
-    set((state) => ({ messages: [...state.messages, message] }));
-  },
+  createNewChat: async (firstMessageContent: string): Promise<string> => {
+    if (!get().isInitialized) {
+      await get().initialize();
+    }
 
-  setMessages: (messages: Message[]) => {
-    set({ messages });
-  },
-
-  createAndSwitchToNewChat: async (firstMessageContent: string): Promise<string> => {
     const generateChatTitle = async (message: string): Promise<string> => {
       try {
         const response = await fetch('/api/chat/title', {
@@ -113,14 +118,26 @@ const useChatStoreImplementation = create<ChatState>((set, get) => ({
     console.log('🔍 [ChatStore] Creating new chat...');
     const title = await generateChatTitle(firstMessageContent);
     const newChat = await createChat(title);
-    get().setChatId(newChat.id);
-    console.log('✅ [ChatStore] Created and switched to new chat:', newChat.id);
+    
+    // Save the first user message immediately
+    console.log('🔍 [ChatStore] Saving first message to chat:', newChat.id);
+    await createMessage(newChat.id, 'user', firstMessageContent);
+    
+    // Set chatId and load the messages
+    set({ chatId: newChat.id });
+    await get().loadChat(newChat.id);
+    
+    console.log('✅ [ChatStore] Created chat and saved first message:', newChat.id);
     return newChat.id;
+  },
+
+  clearCurrentChat: () => {
+    console.log('🔍 [ChatStore] Clearing current chat');
+    set({ chatId: null, messages: [] });
   }
 }));
 
 // Initialize the store when the module is loaded
 useChatStoreImplementation.getState().initialize();
-
 
 export const useChatStore = useChatStoreImplementation; 

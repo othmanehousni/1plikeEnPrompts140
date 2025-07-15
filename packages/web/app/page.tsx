@@ -1,188 +1,57 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useToast } from "@/hooks/use-toast";
-import { ToastContainer } from "@/components/ui/toast";
-import { useUserPreferences } from "@/lib/stores/user-preferences";
-import { useSyncStatus } from "@/lib/stores/sync-status";
-import type { EDCourse } from "@/types/schema/ed.schema";
-import { SettingsButton } from "@/components/layout/settings/settings-button";
-import Chat from "@/components/chat/chat";
-import { ThemeToggle } from "@/components/layout/ThemeToggle";
-import { authClient } from "@/lib/auth-client";
-import { useRevocationHandler } from "@/hooks/use-revocation-handler";
-import { ThreadsButton } from "@/components/chat/threads-button";
-import { useChatStore } from "@/lib/stores/chat-store";
-import { SyncButton } from "@/components/layout/sync-button";
+import { PromptInputWithActions } from "@/components/chat/input";
 import { NewChatButton } from "@/components/chat/new-chat-button";
-import { Button } from "@/components/ui/button";
-
-// Define a simple loading component (can be replaced with a more styled one)
-const PageLoader = () => (
-	<div className="flex h-screen w-screen items-center justify-center">
-		<div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent"></div>
-	</div>
-);
+import { ThreadsButton } from "@/components/chat/threads-button";
+import { AuthWrapper } from "@/components/layout/auth-wrapper";
+import { SettingsButton } from "@/components/layout/settings/settings-button";
+import { SyncButton } from "@/components/layout/sync-button";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { TimeDisplay } from "@/components/layout/time-display";
+import { ToastContainer } from "@/components/ui/toast";
+import { useToast } from "@/hooks/use-toast";
+import { useChatStore } from "@/lib/stores/chat-store";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 export default function Home() {
+	const router = useRouter();
 	const { toasts, error: showError, dismiss } = useToast();
-	const { edStemApiKey } = useUserPreferences();
-	const { lastSyncedAt } = useSyncStatus();
-	const [mounted, setMounted] = useState<boolean>(false);
-	const [currentTime, setCurrentTime] = useState<number>(0);
-	const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-	const [authLoading, setAuthLoading] = useState<boolean>(true);
-	const { chatId, setChatId, startNewChat } = useChatStore();
+	const { clearCurrentChat, createNewChat, selectedModel, setSelectedModel } = useChatStore();
+	
+	// Landing page input state
+	const [input, setInput] = useState<string>("");
+	const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-
-	// Initialize revocation handler
-	useRevocationHandler();
-
-	// ED Course Selection State
-	const [courses, setCourses] = useState<EDCourse[]>([]);
-	const [isExpanded, setIsExpanded] = useState<boolean>(false);
-
+	// Clear current chat state when landing page loads (only once)
 	useEffect(() => {
-		setMounted(true);
-		setCurrentTime(Date.now());
+		clearCurrentChat();
+	}, [clearCurrentChat]);
 
-		const checkAuthStatus = async () => {
-			try {
-				const session = await authClient.getSession();
-				if (session?.data) {
-					const userEmail = session.data.user?.email;
-					if (userEmail) {
-						const domain = userEmail.split('@')[1];
-						console.log(`[CLIENT] Validating user domain: ${userEmail} -> ${domain}`);
-						
-						if (domain !== 'epfl.ch') {
-							console.warn(`[CLIENT] ❌ Non-EPFL user detected: ${userEmail}`);
-							
-							// Force disconnect and redirect
-							try {
-								await authClient.signOut();
-								localStorage.clear();
-								sessionStorage.clear();
-								window.location.href = '/revoked';
-								return;
-							} catch (error) {
-								console.error('Error during forced disconnect:', error);
-								window.location.reload();
-								return;
-							}
-						} else {
-							console.log(`[CLIENT] ✅ EPFL user validated: ${userEmail}`);
-						}
-					}
-					setIsAuthenticated(true);
-				} else {
-					setIsAuthenticated(false);
-				}
-			} catch (error) {
-				console.error("Error checking auth status:", error);
-				setIsAuthenticated(false);
-			} finally {
-				setAuthLoading(false); // Auth check complete
-			}
-		};
-		
-		checkAuthStatus();
-	}, []); // Run once on mount to check auth status
+	// Handle landing page input submission
+	const handleLandingSubmit = async (e?: React.FormEvent<HTMLFormElement>) => {
+		if (e) e.preventDefault();
+		if (!input.trim() || isSubmitting) return;
 
-	// Fetch last sync date and courses only if authenticated and API key exists
-	useEffect(() => {
-		if (!authLoading && isAuthenticated && edStemApiKey) {
-			const fetchLastSyncDate = async () => {
-				try {
-					const response = await fetch("/api/edstem/last-sync");
-					if (response.ok) {
-						const data = await response.json();
-						if (data.lastSynced) {
-							useSyncStatus.getState().setLastSyncedAt(data.lastSynced);
-						}
-					}
-				} catch (error) {
-					console.error("Error fetching last sync date:", error);
-				}
-			};
-
-			fetchLastSyncDate();
-
-			const fetchCourses = async () => {
-				try {
-					const response = await fetch("/api/edstem/courses", {
-						headers: {
-							"x-edstem-api-key": edStemApiKey,
-						},
-					});
-					if (response.ok) {
-						const data = await response.json();
-						if (data.courses && Array.isArray(data.courses)) {
-							setCourses(data.courses);
-						}
-					}
-				} catch (error) {
-					console.error("Error fetching courses:", error);
-				}
-			};
-
-			fetchCourses();
-		}
-	}, [authLoading, isAuthenticated, edStemApiKey]);
-
-	useEffect(() => {
-		if (!mounted) return;
-		const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
-		return () => clearInterval(timer);
-	}, [mounted]);
-
-	useEffect(() => {
-		if (mounted && !authLoading && !edStemApiKey && isAuthenticated) {
-			showError(
-				"Please add your EdStem API key in settings to sync with your courses.",
-			);
-		}
-	}, [edStemApiKey, showError, mounted, authLoading, isAuthenticated]);
-
-	const handleGoogleSignIn = async () => {
+		setIsSubmitting(true);
 		try {
-			await authClient.signIn.social({
-				provider: "google"
-				
-			});
-
+			// Create new chat and save the first message
+			const chatId = await createNewChat(input.trim());
+			console.log('✅ [LANDING] Created new chat, navigating to:', chatId);
+			// Clear the input
+			setInput("");
+			// Navigate to the new chat page
+			router.push(`/c/${chatId}`);
 		} catch (error) {
-			console.error("Google sign-in failed:", error);
-			showError("Authentication failed. Please try again.");
+			console.error('❌ [LANDING] Error creating new chat:', error);
+			showError('Failed to create new chat');
+		} finally {
+			setIsSubmitting(false);
 		}
 	};
 
-	const formattedTime = (() => {
-		if (!mounted) return "";
-		const date = new Date(currentTime);
-		const hours = date.getHours().toString().padStart(2, "0");
-		const minutes = date.getMinutes().toString().padStart(2, "0");
-		const seconds = date.getSeconds().toString().padStart(2, "0");
-		return `${hours}:${minutes}:${seconds}`;
-	})();
-
-	const formattedDate = (() => {
-		if (!mounted) return "";
-		const date = new Date(currentTime);
-		const options: Intl.DateTimeFormatOptions = {
-			month: "short",
-			day: "numeric",
-			year: "numeric",
-		};
-		return date.toLocaleDateString("en-US", options);
-	})();
-
-	if (authLoading) {
-		return <PageLoader />;
-	}
-
 	return (
-		<>
+		<AuthWrapper>
 			{/* Fixed elements that don't scroll */}
 			<div className="fixed top-4 left-4 flex flex-col gap-2 z-50">
 				<div className="text-4xl font-bold text-primary dark:text-primary tracking-tight hover:opacity-80 transition-opacity cursor-default font-title-rounded">
@@ -192,61 +61,43 @@ export default function Home() {
 
 			{/* Theme Toggle Button and Sync Button - Top Right */}
 			<div className="fixed top-4 right-4 flex items-center gap-3 z-50">
-				{isAuthenticated && <ThreadsButton onThreadSelect={setChatId} />}
-				{isAuthenticated && <NewChatButton onNewChat={startNewChat} />}
-				{isAuthenticated && <SyncButton />}
+				<ThreadsButton onThreadSelect={(newChatId) => {
+					if (newChatId) {
+						router.push(`/c/${newChatId}`);
+					}
+				}} />
+				<NewChatButton onNewChat={() => {
+					clearCurrentChat();
+					// No need for router.refresh - just clear state
+				}} />
+				<SyncButton />
 				<ThemeToggle />
-				{isAuthenticated && <SettingsButton />}
+				<SettingsButton />
 			</div>
 
-			{mounted && (
-				<div className="fixed bottom-4 left-4 font-mono text-xs text-muted-foreground z-50">
-					<div className="font-bold mb-1">Ask Ed</div>
-					<div className="flex items-center gap-2">
-						<span className="opacity-60">•</span>
-						<div className="flex items-center gap-1">
-							<span>{formattedDate}</span>
-							<span className="text-xs opacity-60">@</span>
-							<span className="font-medium">{formattedTime}</span>
-						</div>
+			<TimeDisplay />
+
+			{/* Main content area - Clean landing page with centered input */}
+			<div className="w-full min-h-screen">
+				<div className="flex h-screen items-center justify-center">
+					<div className="w-full max-w-2xl px-4">
+						<form onSubmit={handleLandingSubmit} >
+							<div className="w-full max-w-2xl mx-auto transform transition-all duration-300 ease-in-out">
+								<PromptInputWithActions
+									value={input}
+									onValueChange={setInput}
+									onSubmit={handleLandingSubmit}
+									isLoading={isSubmitting}
+									selectedModel={selectedModel}
+									setSelectedModel={setSelectedModel}
+								/>
+							</div>
+						</form>
 					</div>
 				</div>
-			)}
-
-			{/* Main content area - allows natural scrolling */}
-			<div className="w-full min-h-screen">
-				{isAuthenticated ? (
-					<>
-						{console.log('🔍 [Page] Rendering Chat component with chatId from store:', chatId)}
-						<Chat />
-					</>
-				) : (
-					<div className="flex h-screen items-center justify-center">
-						<div className="flex flex-col items-center justify-center text-center p-8 border rounded-lg shadow-md bg-card max-w-md">
-							<h2 className="text-2xl font-semibold mb-3">Authentication Required</h2>
-							<div className="text-muted-foreground mb-2">
-								You must sign in with your EPFL Google account to use AskED.
-							</div>
-							<div className="text-muted-foreground font-medium mb-6">
-								Only email addresses with <span className="text-primary">.epfl.ch</span> domain are allowed.
-							</div>
-							<Button onClick={handleGoogleSignIn} variant="default" className="w-full max-w-xs flex items-center justify-center gap-2">
-								<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 186.69 190.5" aria-hidden="true">
-									<g transform="translate(1184.583 765.171)">
-										<path d="M-1089.333-687.239v36.888h51.262c-2.251 11.863-9.006 21.908-19.137 28.662l30.913 23.986c18.011-16.625 28.402-41.044 28.402-70.052 0-6.754-.606-13.249-1.732-19.483z" fill="#4285f4"/>
-										<path d="M-1142.714-651.791l-6.972 5.337-24.679 19.223h0c15.673 31.086 47.796 52.561 85.03 52.561 25.717 0 47.278-8.486 63.038-23.033l-30.913-23.986c-8.486 5.715-19.31 9.179-32.125 9.179-24.765 0-45.806-16.712-53.34-39.226z" fill="#34a853"/>
-										<path d="M-1174.365-712.61c-6.494 12.815-10.217 27.276-10.217 42.689s3.723 29.874 10.217 42.689c0 .086 31.693-24.592 31.693-24.592-1.905-5.715-3.031-11.776-3.031-18.098s1.126-12.383 3.031-18.098z" fill="#fbbc05"/>
-										<path d="M-1089.333-727.244c14.028 0 26.497 4.849 36.455 14.201l27.276-27.276c-16.539-15.413-38.013-24.852-63.731-24.852-37.234 0-69.359 21.388-85.032 52.561l31.692 24.592c7.533-22.514 28.575-39.226 53.34-39.226z" fill="#ea4335"/>
-									</g>
-								</svg>
-								Sign in with Google
-							</Button>
-						</div>
-					</div>
-				)}
 			</div>
 
 			<ToastContainer toasts={toasts} onDismiss={dismiss} />
-		</>
+		</AuthWrapper>
 	);
 }
